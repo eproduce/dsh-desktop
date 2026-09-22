@@ -57,6 +57,7 @@ assert facts.get("bootOk") is True, "boot 未被放行：" + str(facts.get("boot
 assert facts.get("hostStatusOk") is True, "host_status 未被放行：" + str(facts.get("hostStatusError"))
 assert facts.get("platform"), "未注入 html[data-platform]"
 assert facts.get("hasBoot") is True, "未注入 dshDesktopBoot"
+assert facts.get("hasDirectoryPicker") is True, "未注入 __DSH_DIRECTORY_PICKER__"
 boot = facts.get("boot") or {}
 assert boot.get("streamBaseUrl"), "boot 未返回 Host 地址"
 assert boot.get("injections"), "boot 未返回启动注入数据"

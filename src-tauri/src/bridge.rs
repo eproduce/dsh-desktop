@@ -5,7 +5,7 @@
 
 /// 脚本中与平台无关的部分。
 const BODY: &str = r#"
-  const { core } = globalThis.__TAURI__;
+  const { core, event } = globalThis.__TAURI__;
   const invoke = (command, args) => core.invoke(command, args);
   const define = (name, value) => {
     Object.defineProperty(globalThis, name, { configurable: true, value });
@@ -27,6 +27,21 @@ const BODY: &str = r#"
 
   // 产品文档据此判断自己运行在桌面外壳中。
   define("dshDesktop", { protocolVersion: 1 });
+
+  // macOS 进入全屏时红绿灯隐去，共享 Web UI 的 CSS 靠这个标记撤掉留白。
+  if (PLATFORM === "macos") {
+    event.listen("dsh://window-fullscreen", (message) => {
+      const root = document.documentElement;
+      if (!root) return;
+      if (message.payload === true) root.dataset.fullscreen = "true";
+      else delete root.dataset.fullscreen;
+    });
+  }
+
+  // 原生目录选择：取消时 resolve 为 null，与上游约定一致。
+  define("__DSH_DIRECTORY_PICKER__", {
+    pick: () => invoke("pick_directory"),
+  });
 "#;
 
 /// 生成注入脚本。

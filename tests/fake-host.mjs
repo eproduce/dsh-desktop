@@ -45,6 +45,7 @@ const document = `<!doctype html>
         platform: document.documentElement.dataset.platform ?? null,
         hasBoot: typeof globalThis.dshDesktopBoot?.ready === 'function',
         hasDesktop: globalThis.dshDesktop?.protocolVersion ?? null,
+        hasDirectoryPicker: typeof globalThis.__DSH_DIRECTORY_PICKER__?.pick === 'function',
         hostArgs: ${JSON.stringify([runtimeDir, projectDir, primaryRuntime ?? null])},
       }
       try {

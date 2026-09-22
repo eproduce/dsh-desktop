@@ -20,6 +20,8 @@ pub const MAIN_WINDOW: &str = "main";
 pub struct ShellState {
     /// Host 子进程与它最近一次上报的状态。
     pub host: Mutex<host::HostSupervisor>,
+    /// 最近一次广播过的全屏状态；`None` 表示尚未广播过。
+    pub fullscreen: Mutex<Option<bool>>,
 }
 
 /// 取出互斥锁。
@@ -54,12 +56,15 @@ fn resolve_paths(app: &tauri::AppHandle) -> Result<ShellPaths, Box<dyn std::erro
 
 /// 构建并运行桌面应用。
 pub fn run() {
-    let builder = tauri::Builder::default().invoke_handler(tauri::generate_handler![
-        commands::boot,
-        commands::boot_failed,
-        commands::host_status,
-        commands::host_restart,
-    ]);
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::boot,
+            commands::boot_failed,
+            commands::host_status,
+            commands::host_restart,
+            commands::pick_directory,
+        ]);
 
     protocol::register(builder)
         .setup(|app| {
@@ -69,6 +74,7 @@ pub fn run() {
                     paths.profile,
                     paths.bridge,
                 ))),
+                fullscreen: Mutex::new(None),
             });
 
             let window = WebviewWindowBuilder::new(
@@ -85,13 +91,19 @@ pub fn run() {
             if let Err(error) = commands::start_host(&window.app_handle().clone()) {
                 eprintln!("dsh 桌面外壳：{error}");
             }
+            commands::publish_fullscreen(&window.app_handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // Host 必须在进程退出前收尾，因此先拦下关闭，收尾完成后再退出。
-                api.prevent_close();
-                commands::shutdown_and_exit(window.app_handle().clone());
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    // Host 必须在进程退出前收尾，因此先拦下关闭，收尾完成后再退出。
+                    api.prevent_close();
+                    commands::shutdown_and_exit(window.app_handle().clone());
+                }
+                // 进入或退出全屏时窗口会改变尺寸，借此同步全屏标记。
+                WindowEvent::Resized(_) => commands::publish_fullscreen(window.app_handle()),
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

@@ -5,4 +5,4 @@
 [[permission]]
 identifier = "allow-shell-commands"
 description = "允许加载页与工作区文档调用外壳自身的命令：启动就绪查询、启动失败上报、Host 状态查询与重启。"
-commands.allow = ["boot", "boot_failed", "host_status", "host_restart"]
+commands.allow = ["boot", "boot_failed", "host_status", "host_restart", "pick_directory"]
