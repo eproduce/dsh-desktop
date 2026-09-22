@@ -23,22 +23,28 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 - **Host 启动契约**：上游 Host 用 Node 的 IPC 通道上报（`stdio` 末项为 `ipc`），Rust 没有该通道，因此新增 `host/host-bridge.cjs` 做转换：它与 Host 走 IPC，把消息以换行分隔 JSON 写到 stdout，并把 stdin 转回 Host。Host 的 stdout/stderr 都转到桥接的 stderr 作为诊断。
 - **启动参数**：镜像上游的 argv 位置（`[2]=runtimeDir`、`[3]=projectDir`、`[4]=primaryRuntime`），端到端验证时页面回读到的三个参数与传入一致。
 - **事件与状态机**：`ready`（含 injections）、`fatal`、`shutdown-complete`、新增的 `exit`；失败按端口占用分类并保留诊断尾巴。
-- **导航**：Host 就绪后窗口导航到它给出的地址，实测工作区文档成功加载。
-- **桥接注入**：实测在 **非 `dsh-app` 源**的工作区文档里同样生效（`html[data-platform]`、`dshDesktopBoot`、`dshDesktop` 都在）。
+- **导航与注入**：Host 就绪后窗口导航到它给出的地址，`boot` 返回 Host 上报的 `streamBaseUrl` 与 `injections`。实测拿到假 Host 的注入数据 `[{"marker":"fake-host"}]`。
+- **桥接在异地源可用**：工作区文档运行在 Host 的环回 HTTP 源上，桥接对象与平台标记在那里同样生效。
 - **测试台**：`tests/fake-host.mjs` 按上游协议提供最小 Host，并把工作区文档的探测结果回传到 `GET /last-report`，验证不依赖窗口焦点或截图。
 
-**未完成，且是 P1 的唯一阻塞点：**
+未完成：窗口关闭时的优雅收尾已实现，但自动化验证受 macOS 辅助功能权限限制无法完成，需要手工关窗确认进程链被清理。
 
-工作区文档调用外壳命令时被 Tauri 的 ACL 拒绝，错误为 `boot not allowed. Plugin not found`。已排除或已确认的事实：
+### 命令许可（已解决）
 
-- Tauri 的守卫是 `(plugin_command.is_some() || has_app_acl_manifest || !is_local) && invoke.acl.is_none()`，即**应用只要声明了任何能力文件，所有自定义命令都必须有 ACL 许可**；非本地来源无论是否有清单都受此约束。
-- 应用级许可已按文档定义：`src-tauri/permissions/shell-commands.toml` 注册 `allow-shell-commands`，允许 `boot`/`boot_failed`/`host_status`/`host_restart`。
-- 该许可确实进入了构建产物：`gen/schemas/acl-manifests.json` 与构建脚本 OUT_DIR 下的 `acl-manifests.json` 都含 `__app-acl__` 及该许可。
-- 远程 URL 模式写法正确：用同一规范（URLPattern）验证，`http://127.0.0.1:*` 与 `http://127.0.0.1:19387/*` 都能匹配 `http://127.0.0.1:19387/`。
-- 合并成单个 `local: true` + `remote` 的能力后再试，结果不变。
-- 观察到的错误文案 `boot not allowed. Plugin not found` 与 `resolve_access_message` 的输出格式不符（后者形如 `… not allowed on origin […]. Please create a capability…`），说明拒绝来自另一处产生点，尚未定位。
+工作区文档调用外壳命令曾被 Tauri 的 ACL 拒绝，报 `boot not allowed. Plugin not found`。用最小复现工程跑完整矩阵后确认机制本身正确——**文档的源类别必须与能力的上下文匹配**：
 
-下一步应从这里继续：确认应用级许可在能力中的标识符写法、以及远程来源解析 `ExecutionContext` 的实际取值。可用的手段是把 Tauri 的 `runtime_authority` 调试输出打开，或写一个最小复现工程二分。
+| 能力声明的上下文 | `dsh-app://localhost`（加载页） | `http://127.0.0.1:PORT`（工作区） |
+| --- | --- | --- |
+| 无能力文件但有 `permissions/*.toml` | 拒绝 | 拒绝 |
+| 仅 `local: true` | 放行 | 拒绝 |
+| 仅 `remote: {urls: [...]}` | 拒绝 | 放行 |
+| `local: true` + `remote` | 放行 | 放行 |
+
+另外两点由矩阵确认：只要存在 `permissions/*.toml`，应用 ACL 清单就会被启用，**即使一个能力文件都没有**，自定义命令也需要显式许可；非本地来源无论是否有清单都受 ACL 约束。
+
+**根因是构建产物陈旧。** 新增 `permissions/*.toml` 或改动 `capabilities/*.json` 之后，普通 `cargo build` 没有让 `tauri-build` 重新生成并嵌入 ACL，运行中的二进制带着旧清单，因此运行期查不到应用许可键，报出的正是 `Plugin not found` 这一支。删构建目录不足以触发重新生成。
+
+**纪律**：这三类文件（`capabilities/`、`permissions/`、`tauri.conf.json` 的安全段）改动之后，先 `cargo clean -p dsh-desktop` 再构建，否则会在错误方向上排查很久。
 
 ## 岔路口
 

@@ -38,8 +38,17 @@ const document = `<!doctype html>
         hostArgs: ${JSON.stringify([runtimeDir, projectDir, primaryRuntime ?? null])},
       }
       try {
-        facts.boot = await globalThis.dshDesktopBoot.ready()
+        facts.hostStatus = await globalThis.__TAURI__.core.invoke('host_status')
+        facts.hostStatusOk = true
       } catch (error) {
+        facts.hostStatusOk = false
+        facts.hostStatusError = String(error)
+      }
+      try {
+        facts.boot = await globalThis.dshDesktopBoot.ready()
+        facts.bootOk = true
+      } catch (error) {
+        facts.bootOk = false
         facts.bootError = String(error)
       }
       out.textContent = JSON.stringify(facts, null, 2)
@@ -50,7 +59,7 @@ const document = `<!doctype html>
 
 const server = createServer((request, response) => {
   if (request.url === '/last-report') {
-    response.writeHead(200, { 'content-type': 'application/json' })
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
     response.end(JSON.stringify(lastReport ?? null))
     return
   }
@@ -69,7 +78,7 @@ const server = createServer((request, response) => {
     })
     return
   }
-  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
   response.end(document)
 })
 
