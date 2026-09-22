@@ -1,0 +1,12 @@
+# 工具链固定：本地与 CI 必须用同一个 Rust 版本。
+#
+# 缘由：如果不固定，CI 用 stable-latest 而本地是旧版，上游发新版本后新增的 lint
+# 会把已存在的老代码判红，本地却复现不了；rustfmt 的格式化结果也会随版本变化，
+# 出现「本地通过、CI 报 Diff」。
+#
+# 升级方式（两步必须同步改）：改这里的 channel，并同步 CI 工作流里的 toolchain，
+# 然后本地 `rustup show` 会自动装好新版本，再跑一遍 check/fmt/e2e。
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

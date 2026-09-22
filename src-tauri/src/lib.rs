@@ -26,7 +26,9 @@ pub struct ShellState {
 ///
 /// 持锁方 panic 时沿用内部值，避免把一次状态丢失升级成后续每次调用都 panic。
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 运行期需要的位置。

@@ -69,8 +69,14 @@ const document = `<!doctype html>
 
 const server = createServer((request, response) => {
   if (request.url === '/last-report') {
+    // 尚无结果时返回 503，调用方才能靠 curl 的 --retry 重试而不是读到 null。
+    if (lastReport === undefined) {
+      response.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' })
+      response.end('waiting')
+      return
+    }
     response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
-    response.end(JSON.stringify(lastReport ?? null))
+    response.end(JSON.stringify(lastReport))
     return
   }
   if (request.url === '/report' && request.method === 'POST') {

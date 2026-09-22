@@ -27,6 +27,7 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 - **桥接在异地源可用**：工作区文档运行在 Host 的环回 HTTP 源上，桥接对象与平台标记在那里同样生效。
 - **优雅收尾**：关窗后外壳、桥接、Host 三个进程全部退出。测试台记录到的握手是「收到 shutdown → 已发送 shutdown-complete → IPC 通道断开」，说明走的是约定流程而不是被强杀。
 - **测试台**：`tests/fake-host.mjs` 按上游协议提供最小 Host，并把工作区文档的探测结果回传到 `GET /last-report`，验证不依赖窗口焦点或截图。
+- **开发体验**：`rust-toolchain.toml` 固定 1.98.0（含 rustfmt/clippy），`.nvmrc` 与 `.editorconfig` 对齐 Node 24 与既有仓库约定；`scripts/e2e.sh` 把上面整条链路做成可重复的检查，`npm run e2e` 一条命令跑完构建、启动、探测、关窗与收尾断言。构建、检查与端到端都不需要 npm 依赖；只有打包与图标生成需要 `@tauri-apps/cli`（届时需联网 `npm install`）。
 
 关窗验证可以自动化：`osascript` 经 `System Events` 对窗口执行 `AXPress of button 1` 即可按下关闭按钮。按窗口名引用（而不是 `window 1`）才可靠。
 

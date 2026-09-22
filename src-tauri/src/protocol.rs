@@ -22,7 +22,8 @@ pub fn loading_url() -> Result<tauri::Url, String> {
     #[cfg(not(windows))]
     const BASE: &str = "dsh-app://localhost/";
 
-    BASE.parse().map_err(|error| format!("加载页地址无效：{error}"))
+    BASE.parse()
+        .map_err(|error| format!("加载页地址无效：{error}"))
 }
 
 /// 在构建器上注册 `dsh-app` 协议。

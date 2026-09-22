@@ -230,7 +230,10 @@ impl HostSupervisor {
                 if self.stopping {
                     HostState::Stopped
                 } else {
-                    HostState::Exited { code: *code, detail }
+                    HostState::Exited {
+                        code: *code,
+                        detail,
+                    }
                 }
             }
         };
