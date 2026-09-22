@@ -85,7 +85,9 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 上游的官方 registry 连不通但国内镜像可达，因此依赖走镜像安装：`npm_config_registry=https://registry.npmmirror.com corepack pnpm install --frozen-lockfile`（lockfile 未内嵌 registry 地址，换源不会改写它，实测安装后上游仓库 `git status` 干净）。随后 `pnpm run build` 构建产物。
 
-运行时树不需要启动 Electron 就能准备：直接调用上游自己的 `prepareDevelopmentProject`。准备过程会在 pnpm 的虚拟提升目录里撞上**悬空的平台可选依赖链接**（arm64 机器上指向 x64 的 `@anthropic-ai/claude-agent-sdk-darwin-x64`、`@openai/codex-darwin-x64`、`@deepseek-ai/libreoffice-kit-darwin-x64`），删掉这三个坏链接即可继续；它们是 pnpm 为整个 lockfile 闭包建链接、而平台不匹配的可选依赖没有落地造成的。
+运行时树不需要启动 Electron 就能准备：直接调用上游自己的 `prepareDevelopmentProject`。准备过程会在 pnpm 的虚拟提升目录里撞上**悬空的平台可选依赖链接**（`@anthropic-ai/claude-agent-sdk-darwin-x64`、`@openai/codex-darwin-x64`、`@deepseek-ai/libreoffice-kit-darwin-x64`），删掉这三个坏链接即可继续；它们是 pnpm 为整个 lockfile 闭包建链接、而被跳过的可选依赖没有落地造成的。
+
+本机工具链实测为 **x86_64**（`uname -m` 与 `process.arch` 均为 x64，`node` 是 x86_64 Mach-O），因此上游的打包目标解析结果是 `mac-x64` 而不是 `mac-arm64`。
 
 接真实 Host 的命令：
 
