@@ -112,7 +112,32 @@ DSH_HOST_RUNTIME=<runtimeDir> \
 1. **下载**。上游用单次 `fetch` 读取整个响应再校验 sha256，遇到代理中途掐断连接就整体失败（实测 `TypeError: terminated`），且不续传。缓存以 sha256 为文件名，因此可以先用 `curl` 的续传与重试把 15 个资源（Python 发行版、Node、wheels）预填进 `.desktop-build/downloads`，再重跑准备步骤；准备本身只需 32 秒。
 2. **位置**。载荷落在 `.desktop-build/targets/mac-x64/runtime/primary-runtime`，而外壳不传 argv[4] 时 Host 会推导到 `<runtimeDir>/../runtime/primary-runtime`，两者不一致。运行时用 `DSH_HOST_PRIMARY_RUNTIME` 显式指向即可。
 
-**验证**：关闭窗口后 `pgrep node` 不再有残留 Host 进程。
+### 当前阻塞：工作区文档的认证 cookie
+
+外壳已把窗口导航到真实地址，但窗口显示的是 Host 的 401 纯文本：
+
+```
+dsh web authentication required; reopen the URL printed by dsh web.
+```
+
+**Host 侧已实测正常。** 单独运行 Host（它会把自己的地址打印到 stdout，可直接读取，不必经外壳），再用 curl 走完整流程：
+
+| 请求 | 结果 |
+| --- | --- |
+| `GET /?token=<launchToken>` | **303**，`location: ./`，`Set-Cookie: dsh-auth-<authority>=<签名载荷>; HttpOnly; SameSite=Strict` |
+| 带该 cookie `GET /` | **200**，返回真实应用文档 |
+
+认证契约见 `packages/client/connection/src/browser-auth.ts`：带单个 `token` 参数且与每进程随机生成的 `launchToken` 匹配时下发 cookie，此后按 cookie 认证，cookie 与请求 authority（host:port）绑定。token 不落盘，外部拿不到，只能从 Host 自己的输出读取。
+
+**因此问题在外壳侧**：Tauri 的 webview 没有建立或没有回送这个 cookie。尚未定位根因，待验证的候选：
+
+- `SameSite=Strict` 与 WebKit 的 cookie 策略；
+- WKWebView 对 `http://127.0.0.1:<port>` 这种明文环回源的 cookie 持久化；
+- 303 响应上的 `Set-Cookie` 在 WebView 里是否被采纳。
+
+**Electron 不会遇到这个问题**：它用 `dsh-app://app` 提供应用文档，并由主进程自己代理对 Host 的请求（`apps/desktop/src/web-document.ts` 的 `serveWebDocument` / `authenticateWebHost` / `forwardWebRequest`），认证在 Node 侧完成。本外壳让窗口直接访问环回源，就把认证交给了 webview 的 cookie 罐。
+
+两条出路：确认并修好 webview 的 cookie 行为；或按 Electron 的方式改成外壳代理请求。
 
 ### GUI 断言依赖辅助功能通道
 
