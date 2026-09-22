@@ -79,6 +79,15 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 目标：从「窗口能开」到「能看到自己的会话列表」。除下列一项外均已完成，证据见上面的「P1 进度」。
 
+真实 Host 的启动契约（`apps/desktop/src/host-process.ts`）已核对，argv 位置与本外壳一致：
+
+```
+node --expose-internals <runtimeDir>/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js \
+     <runtimeDir> <projectDir> <primaryRuntime> [pnpm, nodeBin]
+```
+
+上游用 `desktopNodeEnvironment` 构造子进程环境，其中只有 `ELECTRON_RUN_AS_NODE`（对普通 node 无意义）与**打包应用里捆绑的包管理器路径**会影响行为。后者对应可选的 argv[5]、[6]，本外壳目前不提供——见 P5。
+
 - [ ] **1.1 真实 Host 验收**：用真实 dsh Host（而非 `tests/fake-host.mjs`）启动，在窗口里看到会话列表。需要先构建上游，见 P3。
 
 **验证**：关闭窗口后 `pgrep node` 不再有残留 Host 进程。
@@ -119,6 +128,7 @@ D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandbox
 
 ## P5 — 打包与签名
 
+- [ ] **5.0 捆绑包管理器**：Host 用可选的 argv[5]、[6] 接收 pnpm 与 node 的路径，配合 `DSH_DESKTOP_NODE_EXECUTABLE` 与 PATH 前缀，供插件安装使用。上游 Electron 产物里捆绑了这两者；本外壳目前不传，于是插件安装只能在系统已装 Node/pnpm 的机器上工作。打包时必须一并解决。
 - [ ] **5.1 图标**：`tauri icon` 生成 `.icns`/`.ico` 全套。注意上游 `resources/icon.png` 是 1104×1104，Tauri 按 1024 源图生成，需重新导出或用平台 PNG。
 - [ ] **5.2 资源布局**：`bundle.active = true`；dsh 生产依赖树作为 `resources` 落盘（没有 ASAR），确认原生模块与 Office 原生引擎能从普通目录加载。
 - [ ] **5.3 运行时完整性**：用清单校验替代 ASAR 封存，至少覆盖 dsh 运行时树的文件集合与哈希。
