@@ -105,9 +105,20 @@ DSH_HOST_RUNTIME=<runtimeDir> \
 1. **profile 目录必须由外壳创建**。`apps/desktop-host` 直接调用 `loadProfileDirectory`，绕过了 `loadProfile` 里按名称查内置模板的兜底，而 `PROFILE_TEMPLATES` 里没有 `desktop`；清单不存在时 Host 以 `failed to read profile manifest` 退出。已按上游 `initProfile` 与 `createPluginProfile` 实现，见 `src-tauri/src/profile.rs`。
 2. **致命错误被退出码覆盖**。Host 报 `fatal` 后紧接着退出，状态被降级成「意外退出」，把指明下一步的致命信息换成了无意义的退出码。现在保留致命信息，同时换上退出时刻更完整的 stderr（报 `fatal` 时进程常常还没输出堆栈）。
 
-越过后 Host 能启动 Web 服务并打印 `dsh web: http://127.0.0.1:19387/?token=...`，外壳、桥接、Host 三个进程同时存活。
+越过后 Host 能启动 Web 服务并打印 `dsh web: http://127.0.0.1:19387/?token=...`，外壳、桥接、Host 三个进程同时存活。补上载荷后外壳收到 Host 的 `ready`，并把窗口导航到带 token 的真实工作区地址（导航调用成功）。
 
-当前阻塞：**载荷缺失**。`skill-office` 读不到 `<runtimeDir>/../runtime/office-skills/scripts/check_office.py`，即上游的 `preparePrimaryRuntime()` 尚未执行。该步骤从 GitHub（python-build-standalone）、nodejs.org 与 PyPI 下载，三者在当前代理规则下均可达。
+载荷准备需要补齐两个环节：
+
+1. **下载**。上游用单次 `fetch` 读取整个响应再校验 sha256，遇到代理中途掐断连接就整体失败（实测 `TypeError: terminated`），且不续传。缓存以 sha256 为文件名，因此可以先用 `curl` 的续传与重试把 15 个资源（Python 发行版、Node、wheels）预填进 `.desktop-build/downloads`，再重跑准备步骤；准备本身只需 32 秒。
+2. **位置**。载荷落在 `.desktop-build/targets/mac-x64/runtime/primary-runtime`，而外壳不传 argv[4] 时 Host 会推导到 `<runtimeDir>/../runtime/primary-runtime`，两者不一致。运行时用 `DSH_HOST_PRIMARY_RUNTIME` 显式指向即可。
+
+**验证**：关闭窗口后 `pgrep node` 不再有残留 Host 进程。
+
+### GUI 断言依赖辅助功能通道
+
+macOS 的辅助功能通道会**整体性**变得不可用，而不只是对某个应用失效：实测失效时连 Finder 与 VS Code 都报 0 个窗口。此时任何基于 AX 的读数都无效——包括「窗口数为 0」这种看似确凿的证据——依赖它的断言也不能作为失败依据。
+
+因此 `scripts/e2e.sh` 先探测 AX 可用性：不可用则跳过全屏与关窗断言并说明本次未验证什么，退出码为 0；可用时按原样硬断言。判断外壳是否真的进入工作区应看外壳侧的导航日志，而不是窗口枚举。
 
 真实 Host 的启动契约（`apps/desktop/src/host-process.ts`）已核对，argv 位置与本外壳一致：
 
