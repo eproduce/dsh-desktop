@@ -16,6 +16,10 @@ Rust 核心负责窗口、`dsh-app` 协议、Host 子进程监管与桥接注入
 | 初始化脚本先于页面脚本执行 | Electron 的 `contextBridge` 可用同名 shim 替代，客户端包不改动 |
 | `Window::add_child` 多 webview 可用 | 侧边栏访客可行，但需 `unstable` 特性，且同 scheme 下不隔离 origin |
 
+接下来要做的任务、验证方式与需要拍板的岔路口见 [路线图](docs/roadmap.md)。
+
+还有一个上游接口事实影响范围判断：`DesktopBrowserBridge` 是壳无关接口，但**页面实现的挑选是硬编码的**——只要本外壳不暴露 `browser`，上游就回退到 sandboxed iframe provider，那个在任何 WebView 里都能跑。
+
 ## 运行
 
 需要 dsh CLI 入口。从上游仓库构建后把入口路径指过来：
