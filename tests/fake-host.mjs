@@ -10,6 +10,7 @@
  *
  * 用法：node tests/fake-host.mjs <runtimeDir> <projectDir> [primaryRuntime]
  */
+import { appendFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 
 const [runtimeDir, projectDir, primaryRuntime] = process.argv.slice(2)
@@ -20,6 +21,15 @@ if (runtimeDir === undefined || projectDir === undefined) {
 
 /** 最近一次由工作区文档上报的探测结果，由 `GET /last-report` 读出。 */
 let lastReport
+
+/**
+ * 收尾握手记录。设置 `DSH_FAKE_HOST_STOP_LOG` 后，每次握手追加一行，
+ * 用来区分外壳走了优雅关闭还是直接强杀。
+ */
+const stopLog = process.env.DSH_FAKE_HOST_STOP_LOG
+const noteStop = text => {
+  if (stopLog !== undefined && stopLog !== '') appendFileSync(stopLog, `${new Date().toISOString()} ${text}\n`)
+}
 
 /** 工作区文档：运行在 Host 的环回源上，用来验证桥接在非 dsh-app 文档中同样可用。 */
 const document = `<!doctype html>
@@ -102,14 +112,27 @@ const listen = (port, fallback) => {
 }
 listen(preferredPort, true)
 
+// 与真实 Host 一致：收尾只执行一次，收到 shutdown 与通道断开可能都会触发。
+let stopping
 const stop = () => {
-  server.close(() => {
-    process.send?.({ type: 'shutdown-complete' })
-    process.disconnect?.()
+  stopping ??= new Promise(resolve => {
+    server.close(() => {
+      noteStop('已发送 shutdown-complete')
+      process.send?.({ type: 'shutdown-complete' })
+      process.disconnect?.()
+      resolve()
+    })
   })
+  return stopping
 }
 
 process.on('message', message => {
-  if (message?.type === 'shutdown') stop()
+  if (message?.type === 'shutdown') {
+    noteStop('收到 shutdown')
+    stop()
+  }
 })
-process.once('disconnect', stop)
+process.once('disconnect', () => {
+  noteStop('IPC 通道断开')
+  stop()
+})

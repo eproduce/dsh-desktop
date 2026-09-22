@@ -25,9 +25,10 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 - **事件与状态机**：`ready`（含 injections）、`fatal`、`shutdown-complete`、新增的 `exit`；失败按端口占用分类并保留诊断尾巴。
 - **导航与注入**：Host 就绪后窗口导航到它给出的地址，`boot` 返回 Host 上报的 `streamBaseUrl` 与 `injections`。实测拿到假 Host 的注入数据 `[{"marker":"fake-host"}]`。
 - **桥接在异地源可用**：工作区文档运行在 Host 的环回 HTTP 源上，桥接对象与平台标记在那里同样生效。
+- **优雅收尾**：关窗后外壳、桥接、Host 三个进程全部退出。测试台记录到的握手是「收到 shutdown → 已发送 shutdown-complete → IPC 通道断开」，说明走的是约定流程而不是被强杀。
 - **测试台**：`tests/fake-host.mjs` 按上游协议提供最小 Host，并把工作区文档的探测结果回传到 `GET /last-report`，验证不依赖窗口焦点或截图。
 
-未完成：窗口关闭时的优雅收尾已实现，但自动化验证受 macOS 辅助功能权限限制无法完成，需要手工关窗确认进程链被清理。
+关窗验证可以自动化：`osascript` 经 `System Events` 对窗口执行 `AXPress of button 1` 即可按下关闭按钮。按窗口名引用（而不是 `window 1`）才可靠。
 
 ### 命令许可（已解决）
 
