@@ -37,7 +37,7 @@ PROBE_REPORT from=main  {"origin":"dsh-app://localhost","hostname":"localhost","
 | Host 就绪前的加载页 | `dsh-app://app` 静态资源 | `dsh-app` 自定义协议 | 已实现 |
 | 渲染层桥接 | 16 个 `preload-*.ts` | 初始化脚本 + `invoke` + 事件 | 部分实现 |
 | 拖入文件的路径 | `webUtils.getPathForFile` | `tauri://drag-drop` 事件 | 待验证 |
-| 目录选择 | Electron `dialog` | `tauri-plugin-dialog` | 未开始 |
+| 目录选择 | Electron `dialog` | `tauri-plugin-dialog` | 已实现 |
 | 单实例与 `dsh://open` | `single-instance.ts` | `tauri-plugin-single-instance`、`tauri-plugin-deep-link` | 未开始 |
 | 菜单与 Windows 标题栏 | `preload-menu.ts`、`windows-layout.ts` | `tauri::menu` 与自绘装饰 | 未开始 |
 | 内嵌 Platform 账户页 | `WebContentsView` | 子 webview + 导航处理器 + 凭据注入 | 未开始 |
@@ -48,6 +48,8 @@ PROBE_REPORT from=main  {"origin":"dsh-app://localhost","hostname":"localhost","
 | 捆绑 Node、pnpm 与 Python | `scripts/primary-runtime/*` | sidecar 二进制与捆绑资源 | 未开始 |
 
 应用文档改走 Host 环回 HTTP 源，让上游的整层反向代理、cookie 交换与逐请求 `origin` 校验都变成不需要的代码。加载页仍单独由自定义协议提供，保留「Host 未就绪时窗口已可见」的体验。
+
+上游 Host 上报的事件集比上表体现的更宽（`apps/desktop/src/host-process.ts`）。除 `ready`、`fatal`、`shutdown-complete` 外，还有 `platform-session`（账号平台窗口的凭证）与 `update-tasks`（更新调度）；这两个本外壳尚未实现，会把它们记成 stderr 诊断而不是无声丢弃。前者归上表的「内嵌 Platform 账户页」，后者归「更新检查与安装」。
 
 ## 替代方案
 
