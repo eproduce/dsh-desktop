@@ -53,7 +53,7 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 上游的桌面桥接大多是**可选全局**，缺失时上游会降级，因此可以从容地逐个补齐。
 
 - **2.1 原生目录选择**：接入 `tauri-plugin-dialog`，新增 `pick_directory` 命令，并在桥接里以 `__DSH_DIRECTORY_PICKER__` 暴露，签名与上游 `NativeFlowInjected` 的 `pick(): Promise<string | null>` 一致。选择器挂到主窗口。dialog 插件只在 Rust 侧调用，前端不直接访问插件命令，**因此不需要给前端授予任何 dialog 权限**。
-- **2.3 全屏标记**：窗口尺寸变化时比较全屏状态，仅在变化时广播 `dsh://window-fullscreen`；桥接在 macOS 上据此维护 `html[data-fullscreen]`，对应上游 `preload-platform.ts` 的行为。
+- **2.3 全屏标记**：窗口尺寸变化时比较全屏状态，仅在变化时广播 `dsh://window-fullscreen`；桥接在 macOS 上据此维护 `html[data-fullscreen]`，对应上游 `preload-platform.ts` 的行为。端到端脚本会真实切换全屏，并分别断言标记被设置与被清除，两个方向都验证过。
 - **2.2 语言**：本机离线缓存没有 `tauri-plugin-os`，自建实现要么引入 objc2 的 unsafe、要么读不到 GUI 会话里的正确值，收益不抵成本。**暂缓**，等能联网装插件时再补。
 - **2.4 更新桥接**：**有意不做**。返回「空闲」的存根会让用户误以为已是最新，比暂时缺失更糟；让上游走「无桌面更新桥接」的降级分支是更安全的状态。真正接上更新器属于 P6。
 - **2.5 平台请求头**：**无需外壳做任何事**。`x-client-platform` 由 Host 侧从 `process.platform` 推导（`packages/bundle/base/cordis.patch.yml`），属于 profile 逻辑，外壳只负责用桌面 profile 启动 Host。

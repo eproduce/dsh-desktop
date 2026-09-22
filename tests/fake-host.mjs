@@ -48,6 +48,7 @@ const document = `<!doctype html>
         hasDirectoryPicker: typeof globalThis.__DSH_DIRECTORY_PICKER__?.pick === 'function',
         hostArgs: ${JSON.stringify([runtimeDir, projectDir, primaryRuntime ?? null])},
       }
+      const post = () => fetch('/report', { method: 'POST', body: JSON.stringify(facts) })
       try {
         facts.hostStatus = await globalThis.__TAURI__.core.invoke('host_status')
         facts.hostStatusOk = true
@@ -63,7 +64,12 @@ const document = `<!doctype html>
         facts.bootError = String(error)
       }
       out.textContent = JSON.stringify(facts, null, 2)
-      await fetch('/report', { method: 'POST', body: JSON.stringify(facts) })
+      await post()
+      // 外壳驱动 documentElement 的属性变化；重新上报才能观察到全屏标记是否生效。
+      new MutationObserver(() => {
+        facts.fullscreen = document.documentElement.dataset.fullscreen ?? null
+        post()
+      }).observe(document.documentElement, { attributes: true })
     </script>
   </body>
 </html>`

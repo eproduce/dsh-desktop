@@ -65,9 +65,46 @@ print("  工作区 origin =", facts["origin"])
 print("  平台标记 =", facts["platform"], "注入数据 =", boot["injections"])
 ' || fail "工作区探测结果不符合预期"
 
+# 读取最近一次上报里的全屏标记；未设置时 Python 打印 None。
+read_fullscreen() {
+  curl -fsS -m 5 "http://127.0.0.1:$PORT/last-report" 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("fullscreen"))' 2>/dev/null || echo ''
+}
+
+# 轮询到标记等于期望值，或超时后返回当前值。
+wait_fullscreen() {
+  local want="$1" got=""
+  for _ in $(seq 1 20); do
+    got="$(read_fullscreen)"
+    if [ "$got" = "$want" ]; then echo "$got"; return 0; fi
+    sleep 0.5
+  done
+  echo "$got"
+}
+
+# 切换窗口全屏；失败时返回非零，调用方决定是否跳过断言。
+set_fullscreen() {
+  osascript -e "tell application \"System Events\" to set value of attribute \"AXFullScreen\" of window \"DeepSeek Harness\" of (first process whose unix id is $1) to $2" \
+    >/dev/null 2>&1
+}
+
 if [ "$(uname)" = "Darwin" ]; then
-  echo "== 关窗，验证优雅收尾 =="
   PID="$(pgrep -f "$BIN" | head -1)"
+
+  echo "== 进入全屏，验证 html[data-fullscreen] =="
+  if set_fullscreen "$PID" true; then
+    GOT="$(wait_fullscreen true)"
+    if [ "$GOT" = "true" ]; then echo "  进入全屏后标记已生效"; else echo "  警告：标记为 ${GOT}（期望 true）"; fi
+
+    echo "== 退出全屏，验证标记被清除 =="
+    set_fullscreen "$PID" false || true
+    GOT="$(wait_fullscreen None)"
+    if [ "$GOT" = "None" ]; then echo "  退出全屏后标记已清除"; else echo "  警告：标记为 ${GOT}（期望 None）"; fi
+  else
+    echo "  提示：无法通过脚本切换全屏，跳过该断言"
+  fi
+
+  echo "== 关窗，验证优雅收尾 =="
   osascript -e "tell application \"System Events\" to tell (first process whose unix id is $PID) to perform action \"AXPress\" of button 1 of window \"DeepSeek Harness\"" \
     >/dev/null 2>&1 || echo "  提示：无法通过脚本关窗，后续断言可能因外壳仍在运行而失败"
 else
