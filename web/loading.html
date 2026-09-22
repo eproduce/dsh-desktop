@@ -117,8 +117,15 @@
             break;
           case "failed":
             spinner.hidden = true;
-            title.textContent = "Host 启动失败";
-            detail.textContent = state.message;
+            title.textContent = state.port_in_use ? "端口被占用" : "Host 启动失败";
+            detail.textContent = state.port_in_use
+              ? `${state.message}\n\n请退出其它正在运行的 DSH 实例后重试。`
+              : [state.message, state.detail].filter(Boolean).join("\n\n");
+            break;
+          case "exited":
+            spinner.hidden = true;
+            title.textContent = "Host 意外退出";
+            detail.textContent = [`退出码 ${state.code}`, state.detail].filter(Boolean).join("\n\n");
             break;
           case "stopped":
             spinner.hidden = true;
@@ -134,7 +141,11 @@
 
       const { core, event } = globalThis.__TAURI__;
       await event.listen("dsh://host-state", ({ payload }) => render(payload));
-      render(await core.invoke("host_status"));
+      try {
+        render(await core.invoke("host_status"));
+      } catch (error) {
+        render({ phase: "failed", message: "无法读取 Host 状态", detail: String(error) });
+      }
     </script>
   </body>
 </html>

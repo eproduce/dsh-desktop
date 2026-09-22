@@ -1,0 +1,8 @@
+# 外壳自身命令的访问许可。
+#
+# 应用只要声明了任何能力文件，Tauri 就对自定义命令启用 ACL 检查，因此这些命令必须
+# 显式列出，否则加载页与工作区文档的 invoke 会被拒。
+[[permission]]
+identifier = "allow-shell-commands"
+description = "允许加载页与工作区文档调用外壳自身的命令：启动就绪查询、启动失败上报、Host 状态查询与重启。"
+commands.allow = ["boot", "boot_failed", "host_status", "host_restart"]

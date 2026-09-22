@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口对核心命令的访问权限。项目自身的命令不受 ACL 限制。",
+  "description": "主窗口同时承载外壳自己的加载页（本地 URL）与 Host 提供的工作区文档（环回源，Tauri 视为远程 URL）。",
+  "local": true,
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "allow-shell-commands"]
 }

@@ -16,6 +16,30 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 同一模式也适用于其它桥接：`__DSH_DIRECTORY_PICKER__`、`dshDesktop.updates`、`__DSH_HOST_PATHS__` 都是**可选全局**，上游在缺失时会降级。这意味着一部分功能可以零上游改动拿到，另一部分必须改上游。
 
+## P1 进度
+
+已完成并有实测证据：
+
+- **Host 启动契约**：上游 Host 用 Node 的 IPC 通道上报（`stdio` 末项为 `ipc`），Rust 没有该通道，因此新增 `host/host-bridge.cjs` 做转换：它与 Host 走 IPC，把消息以换行分隔 JSON 写到 stdout，并把 stdin 转回 Host。Host 的 stdout/stderr 都转到桥接的 stderr 作为诊断。
+- **启动参数**：镜像上游的 argv 位置（`[2]=runtimeDir`、`[3]=projectDir`、`[4]=primaryRuntime`），端到端验证时页面回读到的三个参数与传入一致。
+- **事件与状态机**：`ready`（含 injections）、`fatal`、`shutdown-complete`、新增的 `exit`；失败按端口占用分类并保留诊断尾巴。
+- **导航**：Host 就绪后窗口导航到它给出的地址，实测工作区文档成功加载。
+- **桥接注入**：实测在 **非 `dsh-app` 源**的工作区文档里同样生效（`html[data-platform]`、`dshDesktopBoot`、`dshDesktop` 都在）。
+- **测试台**：`tests/fake-host.mjs` 按上游协议提供最小 Host，并把工作区文档的探测结果回传到 `GET /last-report`，验证不依赖窗口焦点或截图。
+
+**未完成，且是 P1 的唯一阻塞点：**
+
+工作区文档调用外壳命令时被 Tauri 的 ACL 拒绝，错误为 `boot not allowed. Plugin not found`。已排除或已确认的事实：
+
+- Tauri 的守卫是 `(plugin_command.is_some() || has_app_acl_manifest || !is_local) && invoke.acl.is_none()`，即**应用只要声明了任何能力文件，所有自定义命令都必须有 ACL 许可**；非本地来源无论是否有清单都受此约束。
+- 应用级许可已按文档定义：`src-tauri/permissions/shell-commands.toml` 注册 `allow-shell-commands`，允许 `boot`/`boot_failed`/`host_status`/`host_restart`。
+- 该许可确实进入了构建产物：`gen/schemas/acl-manifests.json` 与构建脚本 OUT_DIR 下的 `acl-manifests.json` 都含 `__app-acl__` 及该许可。
+- 远程 URL 模式写法正确：用同一规范（URLPattern）验证，`http://127.0.0.1:*` 与 `http://127.0.0.1:19387/*` 都能匹配 `http://127.0.0.1:19387/`。
+- 合并成单个 `local: true` + `remote` 的能力后再试，结果不变。
+- 观察到的错误文案 `boot not allowed. Plugin not found` 与 `resolve_access_message` 的输出格式不符（后者形如 `… not allowed on origin […]. Please create a capability…`），说明拒绝来自另一处产生点，尚未定位。
+
+下一步应从这里继续：确认应用级许可在能力中的标识符写法、以及远程来源解析 `ExecutionContext` 的实际取值。可用的手段是把 Tauri 的 `runtime_authority` 调试输出打开，或写一个最小复现工程二分。
+
 ## 岔路口
 
 这四处决定后面几个月的工作量，建议先定：
