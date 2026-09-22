@@ -288,11 +288,26 @@ impl Drop for HostSupervisor {
     }
 }
 
-/// 逐行解析 Host 上报，忽略无法识别为事件的输出。
-pub fn read_events<R: std::io::BufRead>(reader: R, mut on_event: impl FnMut(HostEvent)) {
+/// 逐行解析 Host 上报。
+///
+/// 上游的事件集会随功能增长（例如账号平台窗口用的 `platform-session`、更新调度用的
+/// `update-tasks`）。这些事件本外壳尚未实现，但把它们当成解析失败静默丢弃，会让
+/// 「上游没发」与「外壳没实现」在排查时无法区分，因此交给调用方处置。
+///
+/// `reader` 应当是桥接进程的 stdout：那里只出现 JSON 事件，宿主程序自身的输出已被
+/// 桥接转到 stderr，所以每一行不是事件就是需要上报的异常。
+pub fn read_events<R: std::io::BufRead>(
+    reader: R,
+    mut on_event: impl FnMut(HostEvent),
+    mut on_unknown: impl FnMut(&str),
+) {
     for line in reader.lines().map_while(Result::ok) {
-        if let Ok(event) = serde_json::from_str::<HostEvent>(&line) {
-            on_event(event);
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<HostEvent>(&line) {
+            Ok(event) => on_event(event),
+            Err(_) => on_unknown(&line),
         }
     }
 }

@@ -159,6 +159,11 @@ grep -q '已发送 shutdown-complete' "$STOP_LOG" || fail "Host 未回应 shutdo
 COUNT="$(grep -c '已发送 shutdown-complete' "$STOP_LOG")"
 if [ "$COUNT" != "1" ]; then fail "shutdown-complete 发送了 ${COUNT} 次，应为 1 次"; fi
 
+# 假 Host 上报一个本外壳尚未实现的上游事件（账号平台窗口用的 platform-session）。
+# 外壳必须把它记成诊断：静默丢弃会让「上游没发」与「外壳没实现」无法区分。
+grep -q '忽略无法识别的 Host 上报.*platform-session' "$APP_LOG" \
+  || fail "外壳未把未实现的上游事件记入诊断"
+
 echo "== 全部通过 =="
 echo "  收尾握手："
 sed 's/^/    /' "$STOP_LOG"

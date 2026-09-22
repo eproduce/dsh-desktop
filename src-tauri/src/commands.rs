@@ -133,18 +133,22 @@ pub fn shutdown_and_exit(app: AppHandle) {
 /// 在独立线程中消费桥接进程的 stdout。
 fn spawn_reader(app: AppHandle, stdout: ChildStdout) {
     std::thread::spawn(move || {
-        host::read_events(BufReader::new(stdout), |event| {
-            let state = app.state::<ShellState>();
-            let snapshot = {
-                let mut host = lock(&state.host);
-                host.apply(&event);
-                host.state()
-            };
-            let _ = app.emit(HOST_STATE_EVENT, &snapshot);
-            if let HostState::Ready { url, .. } = &snapshot {
-                navigate_main(&app, url);
-            }
-        });
+        host::read_events(
+            BufReader::new(stdout),
+            |event| {
+                let state = app.state::<ShellState>();
+                let snapshot = {
+                    let mut host = lock(&state.host);
+                    host.apply(&event);
+                    host.state()
+                };
+                let _ = app.emit(HOST_STATE_EVENT, &snapshot);
+                if let HostState::Ready { url, .. } = &snapshot {
+                    navigate_main(&app, url);
+                }
+            },
+            |line| eprintln!("dsh 桌面外壳：忽略无法识别的 Host 上报：{line}"),
+        );
     });
 }
 

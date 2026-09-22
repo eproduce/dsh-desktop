@@ -125,6 +125,9 @@ const listen = (port, fallback) => {
     const url = `http://127.0.0.1:${server.address().port}/`
     console.error(`fake-host: 已就绪 ${url}`)
     process.send?.({ type: 'ready', url, injections: [{ marker: 'fake-host' }] })
+    // 上游会发这个事件给账号平台窗口，本外壳尚未实现。发一个用来验证外壳会把它
+    // 记成诊断，而不是像解析失败一样无声丢弃。
+    process.send?.({ type: 'platform-session', session: null })
   })
 }
 listen(preferredPort, true)
