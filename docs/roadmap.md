@@ -79,7 +79,33 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 ## P1 — 让窗口真正进入会话
 
-目标：从「窗口能开」到「能看到自己的会话列表」。除下列一项外均已完成，证据见上面的「P1 进度」。
+目标：从「窗口能开」到「能看到自己的会话列表」。
+
+### 真实 Host 验收（进行中）
+
+上游的官方 registry 连不通但国内镜像可达，因此依赖走镜像安装：`npm_config_registry=https://registry.npmmirror.com corepack pnpm install --frozen-lockfile`（lockfile 未内嵌 registry 地址，换源不会改写它，实测安装后上游仓库 `git status` 干净）。随后 `pnpm run build` 构建产物。
+
+运行时树不需要启动 Electron 就能准备：直接调用上游自己的 `prepareDevelopmentProject`。准备过程会在 pnpm 的虚拟提升目录里撞上**悬空的平台可选依赖链接**（arm64 机器上指向 x64 的 `@anthropic-ai/claude-agent-sdk-darwin-x64`、`@openai/codex-darwin-x64`、`@deepseek-ai/libreoffice-kit-darwin-x64`），删掉这三个坏链接即可继续；它们是 pnpm 为整个 lockfile 闭包建链接、而平台不匹配的可选依赖没有落地造成的。
+
+接真实 Host 的命令：
+
+```
+DSH_HOME=<空目录> \
+DSH_HOST_ENTRY=<runtimeDir>/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js \
+DSH_HOST_RUNTIME=<runtimeDir> \
+  dsh-desktop
+```
+
+其中 `<runtimeDir>` 是 `apps/desktop/.desktop-build/development/project`。
+
+已依次清除的阻塞：
+
+1. **profile 目录必须由外壳创建**。`apps/desktop-host` 直接调用 `loadProfileDirectory`，绕过了 `loadProfile` 里按名称查内置模板的兜底，而 `PROFILE_TEMPLATES` 里没有 `desktop`；清单不存在时 Host 以 `failed to read profile manifest` 退出。已按上游 `initProfile` 与 `createPluginProfile` 实现，见 `src-tauri/src/profile.rs`。
+2. **致命错误被退出码覆盖**。Host 报 `fatal` 后紧接着退出，状态被降级成「意外退出」，把指明下一步的致命信息换成了无意义的退出码。现在保留致命信息，同时换上退出时刻更完整的 stderr（报 `fatal` 时进程常常还没输出堆栈）。
+
+越过后 Host 能启动 Web 服务并打印 `dsh web: http://127.0.0.1:19387/?token=...`，外壳、桥接、Host 三个进程同时存活。
+
+当前阻塞：**载荷缺失**。`skill-office` 读不到 `<runtimeDir>/../runtime/office-skills/scripts/check_office.py`，即上游的 `preparePrimaryRuntime()` 尚未执行。该步骤从 GitHub（python-build-standalone）、nodejs.org 与 PyPI 下载，三者在当前代理规则下均可达。
 
 真实 Host 的启动契约（`apps/desktop/src/host-process.ts`）已核对，argv 位置与本外壳一致：
 
@@ -89,8 +115,6 @@ node --expose-internals <runtimeDir>/node_modules/@deepseek-ai/dsh-desktop-host/
 ```
 
 上游用 `desktopNodeEnvironment` 构造子进程环境，其中只有 `ELECTRON_RUN_AS_NODE`（对普通 node 无意义）与**打包应用里捆绑的包管理器路径**会影响行为。后者对应可选的 argv[5]、[6]，本外壳目前不提供——见 P5。
-
-- [ ] **1.1 真实 Host 验收**：用真实 dsh Host（而非 `tests/fake-host.mjs`）启动，在窗口里看到会话列表。需要先构建上游，见 P3。
 
 **验证**：关闭窗口后 `pgrep node` 不再有残留 Host 进程。
 
