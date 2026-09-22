@@ -6,6 +6,7 @@
 mod bridge;
 mod commands;
 mod host;
+mod profile;
 mod protocol;
 
 use std::fs;
@@ -82,7 +83,8 @@ fn resolve_dsh_home(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::erro
 fn resolve_paths(app: &tauri::AppHandle) -> Result<ShellPaths, Box<dyn std::error::Error>> {
     // 位置与上游 `resolveDesktopPaths` 一致，两个外壳因此共享同一个 profile。
     let profile = resolve_dsh_home(app)?.join("profiles").join("desktop");
-    fs::create_dir_all(&profile)?;
+    // Host 读不到 profile 清单就直接退出，而上游把这个目录的创建交给外壳。
+    profile::ensure_profile(&profile)?;
     let cache = app.path().app_cache_dir()?;
     fs::create_dir_all(&cache)?;
     let bridge = cache.join("host-bridge.cjs");

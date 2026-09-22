@@ -229,6 +229,20 @@ impl HostSupervisor {
             HostEvent::Exit { code, .. } => {
                 if self.stopping {
                     HostState::Stopped
+                } else if let HostState::Failed {
+                    message,
+                    port_in_use,
+                    ..
+                } = &self.state
+                {
+                    // Host 报过 fatal 之后再退出是常态。退出码说不出原因，而致命信息
+                    // 指明了下一步该做什么，所以保留它；诊断换成此刻更完整的 stderr，
+                    // 因为报 fatal 时进程往往还没来得及输出堆栈。
+                    HostState::Failed {
+                        message: message.clone(),
+                        port_in_use: *port_in_use,
+                        detail,
+                    }
                 } else {
                     HostState::Exited {
                         code: *code,
