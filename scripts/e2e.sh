@@ -7,6 +7,7 @@
 # 环境变量：
 #   DSH_E2E_PORT        假 Host 端口（默认 19389，避开真实 Host 的 19387）
 #   DSH_E2E_RUNTIME     传给 Host 的运行时目录（默认新建临时目录）
+#   DSH_E2E_HOME        Harness 数据根目录（默认新建临时目录，避开用户真实的 ~/.dsh）
 #   DSH_E2E_CARGO_ARGS  追加给 cargo build 的参数，例如 --offline
 set -euo pipefail
 
@@ -15,6 +16,8 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/src-tauri/target}"
 BIN="$TARGET_DIR/debug/dsh-desktop"
 PORT="${DSH_E2E_PORT:-19389}"
 RUNTIME_DIR="${DSH_E2E_RUNTIME:-$(mktemp -d)}"
+# 外壳按 DSH_HOME 定位 profile；指向临时目录才能保证验证不碰用户真实数据。
+HOME_DIR="${DSH_E2E_HOME:-$(mktemp -d)}"
 STOP_LOG="$(mktemp)"
 APP_LOG="$(mktemp)"
 
@@ -43,6 +46,7 @@ DSH_FAKE_HOST_STOP_LOG="$STOP_LOG" \
 DSH_FAKE_HOST_PORT="$PORT" \
 DSH_HOST_ENTRY="$ROOT/tests/fake-host.mjs" \
 DSH_HOST_RUNTIME="$RUNTIME_DIR" \
+DSH_HOME="$HOME_DIR" \
   "$BIN" > "$APP_LOG" 2>&1 &
 
 # 假 Host 在结果就绪前对 /last-report 返回 503，因此可以直接靠 curl 重试。
@@ -93,10 +97,11 @@ read_ax_fullscreen() {
 #
 # macOS 的全屏进出是动画：动画未结束时再次切换会被忽略。只看「设置动作是否成功」
 # 会在动画窗口期误判为已生效，因此这里以读回值为准，反复尝试到一致为止。
+# 重试预算按「机器有负载时 AX 操作会明显变慢」定，比动画本身就长很多。
 # 返回非零表示该窗口无法进入期望状态，调用方据此跳过断言。
 set_fullscreen() {
   local pid="$1" want="$2" got=""
-  for _ in $(seq 1 12); do
+  for _ in $(seq 1 30); do
     got="$(read_ax_fullscreen "$pid")"
     if [ "$got" = "$want" ]; then return 0; fi
     osascript -e "tell application \"System Events\" to tell (first process whose unix id is $pid) to set value of attribute \"AXFullScreen\" of window \"DeepSeek Harness\" to $want" \
@@ -110,7 +115,7 @@ set_fullscreen() {
 close_window() {
   local pid="$1"
   set_fullscreen "$pid" false || true
-  for _ in $(seq 1 8); do
+  for _ in $(seq 1 20); do
     osascript -e "tell application \"System Events\" to tell (first process whose unix id is $pid) to perform action \"AXPress\" of button 1 of window \"DeepSeek Harness\"" \
       >/dev/null 2>&1 || true
     if ! pgrep -f "$BIN" >/dev/null; then return 0; fi
@@ -145,7 +150,8 @@ else
   cleanup
 fi
 
-for _ in $(seq 1 40); do
+# 收尾最多等待 10 秒启动关闭，加上两段各 5 秒的强杀升级；再给机器负载留出余量。
+for _ in $(seq 1 120); do
   if ! pgrep -f "$BIN" >/dev/null; then break; fi
   sleep 0.5
 done
@@ -163,6 +169,14 @@ if [ "$COUNT" != "1" ]; then fail "shutdown-complete 发送了 ${COUNT} 次，�
 # 外壳必须把它记成诊断：静默丢弃会让「上游没发」与「外壳没实现」无法区分。
 grep -q '忽略无法识别的 Host 上报.*platform-session' "$APP_LOG" \
   || fail "外壳未把未实现的上游事件记入诊断"
+
+# profile 必须落在 DSH_HOME 下，与上游一致；否则换壳后看不到既有会话与设置。
+test -d "$HOME_DIR/profiles/desktop" || fail "profile 未落在 DSH_HOME/profiles/desktop 下"
+
+# 反过来确认外壳没有另开一个数据根：临时根之外不应出现本项目自己的 profile。
+if [ -d "$HOME/Library/Application Support/dsh-desktop/profile" ]; then
+  fail "外壳仍在 Tauri 应用数据目录下另建 profile"
+fi
 
 echo "== 全部通过 =="
 echo "  收尾握手："

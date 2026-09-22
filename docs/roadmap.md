@@ -29,7 +29,9 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 - **测试台**：`tests/fake-host.mjs` 按上游协议提供最小 Host，并把工作区文档的探测结果回传到 `GET /last-report`，验证不依赖窗口焦点或截图。
 - **开发体验**：`rust-toolchain.toml` 固定 1.98.0（含 rustfmt/clippy），`.nvmrc` 与 `.editorconfig` 对齐 Node 24 与既有仓库约定；`scripts/e2e.sh` 把上面整条链路做成可重复的检查，`npm run e2e` 一条命令跑完构建、启动、探测、关窗与收尾断言。构建、检查与端到端都不需要 npm 依赖；只有打包与图标生成需要 `@tauri-apps/cli`（届时需联网 `npm install`）。
 
-关窗验证可以自动化：`osascript` 经 `System Events` 对窗口执行 `AXPress of button 1` 即可按下关闭按钮。按窗口名引用（而不是 `window 1`）才可靠。
+- **数据根与上游一致**：profile 目录原先落在 Tauri 的应用数据目录下，与上游的 `~/.dsh/profiles/desktop` 不是同一个根，换壳后用户已有的会话与设置会「消失」。现已按上游 `resolveDshHome` 的优先级解析：`DSH_HOME` 优先（空白视为未设置，支持 `~`），否则 `~/.dsh`，结果规范化为绝对路径；profile 取 `<根>/profiles/desktop`，与 `resolveDesktopPaths` 一致。端到端脚本把 `DSH_HOME` 指向临时目录，既保证验证不碰真实数据，又反过来断言外壳没有另开数据根。
+
+关窗验证可以自动化：`osascript` 经 `System Events` 对窗口执行 `AXPress of button 1` 即可按下关闭按钮。按窗口名引用（而不是 `window 1`）才可靠。GUI 自动化的重试预算必须留足余量：机器有重负载（例如同时跑整仓 `tsc`）时 AX 操作会明显变慢，预算过紧会表现为「窗口切不动 / 关不掉」而不是断言失败。
 
 ### 命令许可（已解决）
 

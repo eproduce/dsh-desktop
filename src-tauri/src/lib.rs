@@ -16,6 +16,12 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 /// 主窗口的标签。
 pub const MAIN_WINDOW: &str = "main";
 
+/// Harness 数据根目录的环境变量名，与上游 `@deepseek-ai/dsh-home-paths` 一致。
+const DSH_HOME_ENV: &str = "DSH_HOME";
+
+/// 数据根目录未配置时的子目录名，与上游一致。
+const DSH_HOME_DIR_NAME: &str = ".dsh";
+
 /// 外壳的共享状态。
 pub struct ShellState {
     /// Host 子进程与它最近一次上报的状态。
@@ -41,11 +47,41 @@ struct ShellPaths {
     bridge: PathBuf,
 }
 
+/// 展开当前用户的 `~` 前缀；其它形式原样返回。
+///
+/// 与上游一致：只有单独的 `~` 与 `~/`、`~\` 会被展开，`~user` 形式不动。
+fn expand_tilde(value: &str, home: &std::path::Path) -> PathBuf {
+    match value.strip_prefix('~') {
+        None => PathBuf::from(value),
+        Some("") => home.to_path_buf(),
+        Some(rest) if rest.starts_with('/') || rest.starts_with('\\') => {
+            home.join(rest.trim_start_matches(['/', '\\']))
+        }
+        Some(_) => PathBuf::from(value),
+    }
+}
+
+/// 解析 Harness 数据根目录。
+///
+/// 优先级与上游 `resolveDshHome` 一致：`DSH_HOME` 优先（空白值视为未设置），否则
+/// `~/.dsh`；结果同样规范化为绝对路径，因此相对的 `DSH_HOME` 按当前工作目录解析，
+/// 而不会相对 Host 的工作目录建目录。必须取到与上游、CLI 相同的根，否则换壳后
+/// 看不到用户已有的会话与设置。
+fn resolve_dsh_home(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let home = app.path().home_dir()?;
+    let selected = match std::env::var(DSH_HOME_ENV).ok() {
+        Some(configured) if !configured.trim().is_empty() => expand_tilde(&configured, &home),
+        _ => home.join(DSH_HOME_DIR_NAME),
+    };
+    Ok(std::path::absolute(selected)?)
+}
+
 /// 准备数据目录，并把嵌入的桥接脚本写入缓存目录。
 ///
 /// 每次都覆盖，使开发运行与打包运行使用同一份脚本，不需要按运行位置分支解析资源。
 fn resolve_paths(app: &tauri::AppHandle) -> Result<ShellPaths, Box<dyn std::error::Error>> {
-    let profile = app.path().app_data_dir()?.join("profile");
+    // 位置与上游 `resolveDesktopPaths` 一致，两个外壳因此共享同一个 profile。
+    let profile = resolve_dsh_home(app)?.join("profiles").join("desktop");
     fs::create_dir_all(&profile)?;
     let cache = app.path().app_cache_dir()?;
     fs::create_dir_all(&cache)?;
