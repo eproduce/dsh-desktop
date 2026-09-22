@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口对核心命令的访问权限。项目自身的命令不受 ACL 限制。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

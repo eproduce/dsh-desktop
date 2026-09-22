@@ -1,0 +1,18 @@
+[package]
+name = "dsh-desktop"
+version = "0.1.0"
+description = "DeepSeek Harness 桌面外壳（Tauri 2）"
+edition = "2021"
+
+[lib]
+name = "dsh_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+# unstable 提供 `Window::add_child`，侧边栏浏览器访客依赖它。
+tauri = { version = "2.11", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

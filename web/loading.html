@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DeepSeek Harness</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #1b1b1f;
+        --dim: #6b6b76;
+        --bg: #ffffff;
+        --line: #e4e4e7;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #e8e8ea;
+          --dim: #9a9aa5;
+          --bg: #17171a;
+          --line: #2c2c33;
+        }
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          14px/1.6 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "PingFang SC",
+          "Microsoft YaHei",
+          sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 0 32px;
+        text-align: center;
+      }
+      .spinner {
+        width: 26px;
+        height: 26px;
+        border: 2px solid var(--line);
+        border-top-color: var(--dim);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 2.6s;
+        }
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 500;
+      }
+      p {
+        margin: 0;
+        max-width: 46em;
+        color: var(--dim);
+      }
+      code {
+        padding: 1px 5px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      #detail {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="spinner" id="spinner"></div>
+      <h1 id="title">正在启动 dsh Host…</h1>
+      <p id="detail"></p>
+    </main>
+    <script type="module">
+      const spinner = document.getElementById("spinner");
+      const title = document.getElementById("title");
+      const detail = document.getElementById("detail");
+
+      const render = (state) => {
+        switch (state.phase) {
+          case "starting":
+            spinner.hidden = false;
+            title.textContent = "正在启动 dsh Host…";
+            detail.textContent = "";
+            break;
+          case "ready":
+            spinner.hidden = false;
+            title.textContent = "正在载入工作区…";
+            detail.textContent = state.url;
+            break;
+          case "not-configured":
+            spinner.hidden = true;
+            title.textContent = "未找到 dsh 运行时";
+            detail.textContent = `${state.reason}\n\n设置 DSH_HOST_ENTRY 指向 dsh CLI 入口后重启。`;
+            break;
+          case "failed":
+            spinner.hidden = true;
+            title.textContent = "Host 启动失败";
+            detail.textContent = state.message;
+            break;
+          case "stopped":
+            spinner.hidden = true;
+            title.textContent = "Host 已退出";
+            detail.textContent = "";
+            break;
+          default:
+            spinner.hidden = true;
+            title.textContent = "未知状态";
+            detail.textContent = JSON.stringify(state);
+        }
+      };
+
+      const { core, event } = globalThis.__TAURI__;
+      await event.listen("dsh://host-state", ({ payload }) => render(payload));
+      render(await core.invoke("host_status"));
+    </script>
+  </body>
+</html>

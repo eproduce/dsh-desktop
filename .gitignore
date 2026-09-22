@@ -1,0 +1,13 @@
+# 构建产物
+target/
+dist/
+node_modules/
+
+# Tauri 生成的 schema 与移动端工程
+src-tauri/gen/
+
+# 本地环境与编辑器
+.env
+.env.local
+.DS_Store
+*.log
