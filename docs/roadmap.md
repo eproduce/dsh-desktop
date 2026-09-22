@@ -53,49 +53,51 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 上游的桌面桥接大多是**可选全局**，缺失时上游会降级，因此可以从容地逐个补齐。
 
 - **2.1 原生目录选择**：接入 `tauri-plugin-dialog`，新增 `pick_directory` 命令，并在桥接里以 `__DSH_DIRECTORY_PICKER__` 暴露，签名与上游 `NativeFlowInjected` 的 `pick(): Promise<string | null>` 一致。选择器挂到主窗口。dialog 插件只在 Rust 侧调用，前端不直接访问插件命令，**因此不需要给前端授予任何 dialog 权限**。
-- **2.3 全屏标记**：窗口尺寸变化时比较全屏状态，仅在变化时广播 `dsh://window-fullscreen`；桥接在 macOS 上据此维护 `html[data-fullscreen]`，对应上游 `preload-platform.ts` 的行为。端到端脚本会真实切换全屏，并分别断言标记被设置与被清除，两个方向都验证过。
-- **2.2 语言**：本机离线缓存没有 `tauri-plugin-os`，自建实现要么引入 objc2 的 unsafe、要么读不到 GUI 会话里的正确值，收益不抵成本。**暂缓**，等能联网装插件时再补。
+- **2.3 全屏标记**：窗口尺寸变化时比较全屏状态，仅在变化时广播 `dsh://window-fullscreen`；桥接在 macOS 上据此维护 `html[data-fullscreen]`，对应上游 `preload-platform.ts` 的行为。端到端脚本会真实切换全屏，并分别断言标记被设置与被清除，两个方向都验证过。切换必须**读回确认**：macOS 的全屏是动画，动画未结束时再次切换会被忽略，只判断「设置动作已发出」会在动画窗口期误判为已生效。
+- **2.2 语言**：**外壳不需要做任何事**，与最初的计划相反。上游 `packages/client/locale` 在没有 `__DSH_LOCALE__` 时会退回 `detectBrowserLocale` 读取 `navigator.languages`；本机实测 WebView 报 `['zh-CN']`，与 macOS 的 `AppleLanguages`（`zh-Hans-CN`）指向同一语言。
+
+  原先担心打包后 WebKit 会按 bundle 的 `CFBundleLocalizations` 过滤该列表，因此把开发二进制包成 `.app` 做了对照实验：声明 `en` 与声明 `en zh` 两种 bundle 都仍然报 `zh-CN`，**该过滤不存在**。存储的偏好也不需要外壳代劳：`LocaleRuntime` 的构造函数里就调用 `adopt(host)`，直接从 Host 设置投影读取 `locale.preference`，而 `bootstrap.preference` 只是它读取之前的一份临时值。
+
+  因此不引入 `tauri-plugin-os`：它只能给出单个 locale，比 `navigator.languages` 的有序列表更弱；引入后语言会有两个来源，还可能互相不一致。`onChange` 同理跳过——上游用它刷新原生菜单与平台窗口的文案，而本外壳目前没有任何随语言变化的原生界面。
+
+  残留未知：本机只有一种系统语言，多语言时的**顺序**语义没有实测。若日后收到「系统语言顺序未生效」的报告，再补 `__DSH_LOCALE__`。
 - **2.4 更新桥接**：**有意不做**。返回「空闲」的存根会让用户误以为已是最新，比暂时缺失更糟；让上游走「无桌面更新桥接」的降级分支是更安全的状态。真正接上更新器属于 P6。
 - **2.5 平台请求头**：**无需外壳做任何事**。`x-client-platform` 由 Host 侧从 `process.platform` 推导（`packages/bundle/base/cordis.patch.yml`），属于 profile 逻辑，外壳只负责用桌面 profile 启动 Host。
 
 ## 岔路口
 
-这四处决定后面几个月的工作量，建议先定：
+这四处决定后面几个月的工作量。已定两条：
 
-| # | 问题 | 选项 |
+| # | 问题 | 决定 |
 | --- | --- | --- |
-| D1 | 侧边栏浏览器怎么做 | **A**：shim 不暴露 `browser`，用 iframe provider，零上游改动，代价是部分站点拒绝被 frame、没有独立存储分区<br>**B**：实现 bridge + 上游加 provider 注册点，得到原生子 webview 与真实分区，代价是需要上游 PR |
-| D2 | 是否接受改上游 | 若接受：本仓库 + 上游 PR 两条线并行。若不接受：功能范围受限于上游现有的可选桥接，侧边栏浏览器只能走 A，拖放路径只能靠顺序相关性 |
-| D3 | 拖放取 `@path` | **A**：用 `tauri://drag-drop` 事件与 DOM drop 的顺序相关性配对，脆弱但不改上游<br>**B**：上游扩展 `__DSH_HOST_PATHS__` 接受路径数组 |
-| D4 | 发布凭据 | Windows 代码签名证书与 macOS 公证凭据由谁提供、放在哪 |
+| D1 | 侧边栏浏览器怎么做 | **已定 A**：shim 不暴露 `browser`，用 iframe provider，零上游改动。先用它验证范围，确认不足再评估 B。 |
+| D2 | 是否接受改上游 | **已定：能不改就不改**。零上游改动的路径优先；确实必须改上游时单独提出再定。 |
+| D3 | 拖放取 `@path` | **待定**。**A**：用 `tauri://drag-drop` 事件与 DOM drop 的顺序相关性配对，脆弱但不改上游；**B**：上游扩展 `__DSH_HOST_PATHS__` 接受路径数组。按 D2，优先做 A 的探测实验确认相关性是否稳定。 |
+| D4 | 发布凭据 | **待定**。Windows 代码签名证书与 macOS 公证凭据由谁提供、放在哪。 |
 
 ## P1 — 让窗口真正进入会话
 
-目标：从「窗口能开」到「能看到自己的会话列表」。
+目标：从「窗口能开」到「能看到自己的会话列表」。除下列一项外均已完成，证据见上面的「P1 进度」。
 
-- [ ] **1.1 Host 启动配置**：把 `DSH_HOST_ENTRY`/`DSH_HOST_ARGS` 扩成读一个配置文件（profile 名、`DSH_HOME`、端口），与上游 Electron 外壳的启动参数对齐；参考上游 `apps/desktop/src/main.ts` 里传给子进程的实参。
-- [ ] **1.2 启动数据注入**：上游的 `dshDesktopBoot.ready()` 返回 Host 提供的 boot injections。现在返回空数组，需要让 Host 把 injections 交给外壳（上游 Host 已经在 `ready` 事件里带 `injections` 字段，读出来即可）。
-- [ ] **1.3 失败分支**：区分「未配置」「端口占用（`listen EADDRINUSE`）」「插件加载失败」三类，加载页各自给出可操作文案；上游 Electron 外壳对这三类有成熟文案，照抄语义。
-- [ ] **1.4 退出与重启**：窗口关闭时向 Host 发关闭请求并等待 `shutdown-complete`，超时则强杀；`host_restart` 已经存在，补上等待旧进程真正退出的时序。
-- [ ] **1.5 开发体验**：加 `pnpm`/`npm` 脚本跑 `tauri dev`；`rust-toolchain.toml` 与 `.nvmrc` 对齐你其它仓库。
+- [ ] **1.1 真实 Host 验收**：用真实 dsh Host（而非 `tests/fake-host.mjs`）启动，在窗口里看到会话列表。需要先构建上游，见 P3。
 
-**验证**：设置真实 Host 入口并在窗口里看到会话列表；关闭窗口后 `pgrep node` 不再有残留 Host 进程。
+**验证**：关闭窗口后 `pgrep node` 不再有残留 Host 进程。
 
 ## P2 — 补全可选桥接
 
-目标：把上游在桌面壳里期待的可选全局补齐到可用状态。
-
-- [ ] **2.1 `__DSH_DIRECTORY_PICKER__`**：接 `tauri-plugin-dialog` 的原生目录选择，返回值与上游 `NativeFlowInjected` 的 `pick()` 对齐。
-- [ ] **2.2 `__DSH_LOCALE__`**：接 `tauri-plugin-os` 取系统语言，实现 `read()` 与 `onChange()`；同时把语言变化同步到窗口，供原生菜单使用。
-- [ ] **2.3 `html[data-fullscreen]`**：监听窗口全屏变化并打标记，供上游 CSS 撤掉 macOS 红绿灯留白。
-- [ ] **2.4 `dshDesktop.updates`**：先只做 `status()` 与 `subscribe()`，返回空闲状态；真正的更新器在 P6。
-- [ ] **2.5 平台请求头核对**：确认 Host 发出的 `x-client-platform` 在 Tauri 下取值正确（`desktop-mac`/`desktop-win`），这是上游账号与更新策略的分支依据。
+目标：把上游在桌面壳里期待的可选全局补齐到可用状态。四项已结案（2.1、2.2、2.3、2.5），一项有意不做（2.4），证据见上面的「P2 进度」。
 
 **验证**：逐个桥接写单元测试（Rust 侧的命令返回结构 + shim 暴露的成员名），再跑上游使用这些桥接的客户端测试。
 
 ## P3 — 侧边栏浏览器（取决于 D1）
 
-**若选 A（iframe）**：不做代码改动，只做验证——确认 `desktop === undefined` 分支真的被走到，并实测一批常见站点能否被 frame。
+D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandboxed iframe provider，零上游改动。本阶段先只做验证，确认范围后再决定是否需要 B。
+
+### 依赖获取
+
+本机的官方 registry（`registry.npmjs.org`、`crates.io`、`pypi.org`）经代理连不通，国内镜像可达：`registry.npmmirror.com`、`rsproxy.cn`（已实测可取到 `tauri-plugin-os` 等包）。因此装依赖走镜像，**不改全局配置**：cargo 用项目内 `.cargo/config.toml` 或 `--config`，pnpm 用 `--registry`。这不影响已构建完成的离线链路——`cargo build --offline` 依然可用。
+
+若选 A（iframe）：不做代码改动，只做验证——确认 `desktop === undefined` 分支真的被走到，并实测一批常见站点能否被 frame。
 
 **若选 B（原生子 webview）**：工作量最大的一个阶段。
 

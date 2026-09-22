@@ -63,6 +63,7 @@ assert boot.get("streamBaseUrl"), "boot 未返回 Host 地址"
 assert boot.get("injections"), "boot 未返回启动注入数据"
 print("  工作区 origin =", facts["origin"])
 print("  平台标记 =", facts["platform"], "注入数据 =", boot["injections"])
+print("  navigator.languages =", facts.get("navigatorLanguages"), "| navigator.language =", facts.get("navigatorLanguage"))
 ' || fail "工作区探测结果不符合预期"
 
 # 读取最近一次上报里的全屏标记；未设置时 Python 打印 None。
@@ -82,10 +83,40 @@ wait_fullscreen() {
   echo "$got"
 }
 
-# 切换窗口全屏；失败时返回非零，调用方决定是否跳过断言。
+# 读取窗口的全屏属性；读取失败时输出空串。
+read_ax_fullscreen() {
+  osascript -e "tell application \"System Events\" to tell (first process whose unix id is $1) to get value of attribute \"AXFullScreen\" of window \"DeepSeek Harness\"" \
+    2>/dev/null || echo ''
+}
+
+# 切换窗口全屏，并读回确认切换真的生效。
+#
+# macOS 的全屏进出是动画：动画未结束时再次切换会被忽略。只看「设置动作是否成功」
+# 会在动画窗口期误判为已生效，因此这里以读回值为准，反复尝试到一致为止。
+# 返回非零表示该窗口无法进入期望状态，调用方据此跳过断言。
 set_fullscreen() {
-  osascript -e "tell application \"System Events\" to set value of attribute \"AXFullScreen\" of window \"DeepSeek Harness\" of (first process whose unix id is $1) to $2" \
-    >/dev/null 2>&1
+  local pid="$1" want="$2" got=""
+  for _ in $(seq 1 12); do
+    got="$(read_ax_fullscreen "$pid")"
+    if [ "$got" = "$want" ]; then return 0; fi
+    osascript -e "tell application \"System Events\" to tell (first process whose unix id is $pid) to set value of attribute \"AXFullScreen\" of window \"DeepSeek Harness\" to $want" \
+      >/dev/null 2>&1 || true
+    sleep 0.5
+  done
+  return 1
+}
+
+# 按窗口名关窗；全屏下关闭按钮不可达，因此先确保处于非全屏。
+close_window() {
+  local pid="$1"
+  set_fullscreen "$pid" false || true
+  for _ in $(seq 1 8); do
+    osascript -e "tell application \"System Events\" to tell (first process whose unix id is $pid) to perform action \"AXPress\" of button 1 of window \"DeepSeek Harness\"" \
+      >/dev/null 2>&1 || true
+    if ! pgrep -f "$BIN" >/dev/null; then return 0; fi
+    sleep 0.5
+  done
+  return 1
 }
 
 if [ "$(uname)" = "Darwin" ]; then
@@ -94,19 +125,21 @@ if [ "$(uname)" = "Darwin" ]; then
   echo "== 进入全屏，验证 html[data-fullscreen] =="
   if set_fullscreen "$PID" true; then
     GOT="$(wait_fullscreen true)"
-    if [ "$GOT" = "true" ]; then echo "  进入全屏后标记已生效"; else echo "  警告：标记为 ${GOT}（期望 true）"; fi
+    if [ "$GOT" = "true" ]; then echo "  进入全屏后标记已生效"; else fail "进入全屏后标记为 ${GOT}，期望 true"; fi
 
     echo "== 退出全屏，验证标记被清除 =="
-    set_fullscreen "$PID" false || true
-    GOT="$(wait_fullscreen None)"
-    if [ "$GOT" = "None" ]; then echo "  退出全屏后标记已清除"; else echo "  警告：标记为 ${GOT}（期望 None）"; fi
+    if set_fullscreen "$PID" false; then
+      GOT="$(wait_fullscreen None)"
+      if [ "$GOT" = "None" ]; then echo "  退出全屏后标记已清除"; else fail "退出全屏后标记为 ${GOT}，期望 None"; fi
+    else
+      echo "  提示：窗口无法退出全屏，跳过标记清除断言"
+    fi
   else
     echo "  提示：无法通过脚本切换全屏，跳过该断言"
   fi
 
   echo "== 关窗，验证优雅收尾 =="
-  osascript -e "tell application \"System Events\" to tell (first process whose unix id is $PID) to perform action \"AXPress\" of button 1 of window \"DeepSeek Harness\"" \
-    >/dev/null 2>&1 || echo "  提示：无法通过脚本关窗，后续断言可能因外壳仍在运行而失败"
+  close_window "$PID" || echo "  提示：无法通过脚本关窗，后续断言可能因外壳仍在运行而失败"
 else
   echo "== 非 macOS：跳过关窗，直接结束进程 =="
   cleanup

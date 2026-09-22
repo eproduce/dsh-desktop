@@ -46,6 +46,10 @@ const document = `<!doctype html>
         hasBoot: typeof globalThis.dshDesktopBoot?.ready === 'function',
         hasDesktop: globalThis.dshDesktop?.protocolVersion ?? null,
         hasDirectoryPicker: typeof globalThis.__DSH_DIRECTORY_PICKER__?.pick === 'function',
+        // 上游的 locale 客户端在没有原生桥时退回 navigator；这里记录 WebView 自己
+        // 报告的取值，用来判断外壳是否还需要另供一份系统语言列表。
+        navigatorLanguages: navigator.languages ?? null,
+        navigatorLanguage: navigator.language ?? null,
         hostArgs: ${JSON.stringify([runtimeDir, projectDir, primaryRuntime ?? null])},
       }
       const post = () => fetch('/report', { method: 'POST', body: JSON.stringify(facts) })
