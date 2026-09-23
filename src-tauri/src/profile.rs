@@ -20,11 +20,35 @@ const PROFILE_PATCH_FILENAME: &str = "cordis.patch.yml";
 const DESKTOP_PROFILE_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
 
 /// 用户补丁层模板，与上游逐字一致。
-const PROFILE_PATCH_TEMPLATE: &str = "\
+///
+/// 保留上游原文是为了辨认「尚未被修改」的 profile，见 {@link migrate_patch_layer}。
+const UPSTREAM_PATCH_TEMPLATE: &str = "\
 # Your patch layer for this dsh profile, applied after every bundle layer:
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 []
+";
+
+/// 补丁层里的外壳策略条目，追加到用户已有内容之后。
+const PATCH_POLICY_ENTRY: &str = "\
+- id: ui-settings-models
+  config:
+    credentialOnboarding: false
+";
+
+/// 本外壳为新建 profile 写入的补丁层：上游模板加一条外壳策略覆盖。
+///
+/// Electron 用欢迎窗口承接凭据设置，因此靠 `dshDesktop` 标记抑制应用内的模型凭据
+/// 引导；本外壳没有那个窗口，若不关闭引导，用户就没有地方配置模型与 API。上游为这
+/// 类原生壳准备了该开关（见 `ui-settings-models` 的 README）。设置页的模型与 API
+/// 配置不受影响，只是不再弹引导。
+const PROFILE_PATCH_TEMPLATE: &str = "\
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+- id: ui-settings-models
+  config:
+    credentialOnboarding: false
 ";
 
 /// pnpm 设置，与上游逐字一致。
@@ -61,7 +85,38 @@ pub fn ensure_profile(dir: &Path) -> std::io::Result<()> {
     if !workspace.exists() {
         fs::write(workspace, PROFILE_PNPM_WORKSPACE)?;
     }
-    Ok(())
+    ensure_patch_policy(dir)
+}
+
+/// 确保补丁层带有本外壳的策略覆盖，且不破坏用户已有内容。
+///
+/// 上游把 `credentialOnboarding` 的开关放在这个补丁层里（`ui-settings-models` 的
+/// 插件行）。三种情形分别处理：
+///
+/// - 已有该插件的条目：不动。用户若在其后另加一条同 id 的覆盖，仍可自行改回。
+/// - 内容是上游空模板（顶层空数组 `[]`）：整体换成带覆盖的版本，否则追加会产生
+///   无效 YAML。
+/// - 其余情形：把覆盖作为新条目追加。这是纯增加的改动，用户自己的条目与注释都保留
+///   ——应用自己也会往这个文件写状态（例如确认内测声明后的 `welcomeNoticeVersion`）。
+fn ensure_patch_policy(dir: &Path) -> std::io::Result<()> {
+    let path = dir.join(PROFILE_PATCH_FILENAME);
+    let Ok(existing) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    // 以包名是否出现作为判据：比匹配具体 YAML 写法更宽松，宁可少改也不误判。
+    if existing.contains("ui-settings-models") {
+        return Ok(());
+    }
+    if existing.replace("\r\n", "\n") == UPSTREAM_PATCH_TEMPLATE {
+        fs::write(path, PROFILE_PATCH_TEMPLATE)?;
+        return Ok(());
+    }
+    let mut appended = existing;
+    if !appended.ends_with('\n') {
+        appended.push('\n');
+    }
+    appended.push_str(PATCH_POLICY_ENTRY);
+    fs::write(path, appended)
 }
 
 /// profile 清单内容。
@@ -117,6 +172,58 @@ mod tests {
                 profile.join("pnpm-workspace.yaml").exists(),
                 "pnpm 设置应当存在"
             );
+            // 没有欢迎窗口的壳必须关掉应用内引导，否则用户无处配置模型与 API。
+            let patch = fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读");
+            assert!(patch.contains("credentialOnboarding: false"), "{patch}");
+        });
+    }
+
+    #[test]
+    fn migrates_an_untouched_upstream_patch_layer() {
+        with_temp_dir(|dir| {
+            let profile = dir.join("desktop");
+            // 上游 initProfile 写出的原文：本外壳早期版本创建的 profile 就是这一份。
+            fs::create_dir_all(&profile).expect("创建目录应当成功");
+            fs::write(
+                profile.join(PROFILE_PATCH_FILENAME),
+                UPSTREAM_PATCH_TEMPLATE,
+            )
+            .expect("写入应当成功");
+            ensure_profile(&profile).expect("初始化应当成功");
+            let patch = fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读");
+            assert!(patch.contains("credentialOnboarding: false"), "{patch}");
+        });
+    }
+
+    #[test]
+    fn appends_the_policy_without_disturbing_existing_entries() {
+        with_temp_dir(|dir| {
+            let profile = dir.join("desktop");
+            fs::create_dir_all(&profile).expect("创建目录应当成功");
+            // 应用自己会往这个文件写状态，例如确认内测声明后的欢迎须知版本。
+            let existing =
+                "- id: ui-settings-general\n  config:\n    welcomeNoticeVersion: 2026-08-13.1\n";
+            fs::write(profile.join(PROFILE_PATCH_FILENAME), existing).expect("写入应当成功");
+            ensure_profile(&profile).expect("初始化应当成功");
+            let patch = fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读");
+            assert!(patch.starts_with(existing), "已有条目应当原样保留：{patch}");
+            assert!(patch.contains("credentialOnboarding: false"), "{patch}");
+        });
+    }
+
+    #[test]
+    fn leaves_a_user_supplied_override_alone() {
+        with_temp_dir(|dir| {
+            let profile = dir.join("desktop");
+            fs::create_dir_all(&profile).expect("创建目录应当成功");
+            // 用户自己写了一条同 id 的覆盖：不再追加，让他能自行改回引导的行为。
+            let existing = "- id: ui-settings-models\n  config:\n    credentialOnboarding: true\n";
+            fs::write(profile.join(PROFILE_PATCH_FILENAME), existing).expect("写入应当成功");
+            ensure_profile(&profile).expect("初始化应当成功");
+            assert_eq!(
+                fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读"),
+                existing
+            );
         });
     }
 
@@ -131,14 +238,13 @@ mod tests {
             fs::write(profile.join("package.json"), "{\"name\":\"custom\"}\n")
                 .expect("写入应当成功");
             ensure_profile(&profile).expect("重复初始化应当成功");
-            assert_eq!(
-                fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读"),
-                edited
-            );
+            // 清单属于用户，一字不动；补丁层只追加策略，用户内容必须原样保留在前。
             assert_eq!(
                 fs::read_to_string(profile.join("package.json")).expect("应当可读"),
                 "{\"name\":\"custom\"}\n"
             );
+            let patch = fs::read_to_string(profile.join(PROFILE_PATCH_FILENAME)).expect("应当可读");
+            assert!(patch.starts_with(edited), "{patch}");
         });
     }
 }

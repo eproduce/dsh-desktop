@@ -200,6 +200,10 @@ grep -q '忽略无法识别的 Host 上报.*platform-session' "$APP_LOG" \
 # profile 必须落在 DSH_HOME 下，与上游一致；否则换壳后看不到既有会话与设置。
 test -d "$HOME_DIR/profiles/desktop" || fail "profile 未落在 DSH_HOME/profiles/desktop 下"
 
+# 外壳没有承接凭据设置的欢迎窗口，必须关掉应用内引导，否则用户无处配置模型与 API。
+grep -q 'credentialOnboarding: false' "$HOME_DIR/profiles/desktop/cordis.patch.yml" \
+  || fail "profile 补丁层缺少 credentialOnboarding: false"
+
 # 反过来确认外壳没有另开一个数据根：临时根之外不应出现本项目自己的 profile。
 if [ -d "$HOME/Library/Application Support/dsh-desktop/profile" ]; then
   fail "外壳仍在 Tauri 应用数据目录下另建 profile"

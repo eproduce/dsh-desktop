@@ -60,6 +60,8 @@ PROBE_REPORT from=main  {"origin":"dsh-app://localhost","hostname":"localhost","
 
 ### 凭据与模型范围
 
+**模型凭据不弹引导，统一在设置页配置。** 上游的 `credentialOnboarding` 默认为 `true`，会在模型页弹出一次凭据引导；Electron 靠 `dshDesktop` 标记抑制它，因为那条路由由欢迎窗口承接。本外壳没有欢迎窗口，因此按上游为该类原生壳准备的开关，在 profile 补丁层写入 `ui-settings-models` 的 `credentialOnboarding: false`。设置页的模型与 API 配置不受影响，只是不再弹引导。该条目由 `src/profile.rs` 幂等追加：用户已有条目与注释一律保留，用户若自行写一条同 id 的覆盖（放在其后）即可改回。
+
 不需要登录就能使用：凭据按三层解析，优先级为**继承的进程环境变量（只读，最高）→ 调用目录的 `.env` → Harness 根目录的 `.env`**（`packages/util/launch-environment`）。因此 `DEEPSEEK_API_KEY=… ` 既可以直接放进环境变量，也可以写进 `~/.dsh/.env` 与 CLI 共用。有凭据后 `needsWelcome` 判定为不需要登录。
 
 模型也不限于 DeepSeek：`llm-pi-ai` 在多提供方插件里是**休眠挂载**的——在 `llm-pi-ai:` 设置段提供 provider profile 之前不注册任何路由，提供后这些路由会即时注册、密钥按其 `apiKeyEnv` 引用逐请求解析。上游注释指明「提供这些 profile 正是 Web 模型页所做的事」。
