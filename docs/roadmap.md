@@ -74,7 +74,7 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 | --- | --- | --- |
 | D1 | 侧边栏浏览器怎么做 | **已定 A（知情决定）**：看过可框性数据后仍选择 iframe 路线，接受抽样 10 个站点里 6 个打不开，换取零上游改动。理由见 P3-A 实测结论；转 B 需要上游加 provider 注册点（即 D2）。 |
 | D2 | 是否接受改上游 | **已定：能不改就不改**。零上游改动的路径优先；确实必须改上游时单独提出再定。 |
-| D3 | 拖放取 `@path` | **待定**。**A**：用 `tauri://drag-drop` 事件与 DOM drop 的顺序相关性配对，脆弱但不改上游；**B**：上游扩展 `__DSH_HOST_PATHS__` 接受路径数组。按 D2，优先做 A 的探测实验确认相关性是否稳定。 |
+| D3 | 拖放取 `@path` | **已定：先关掉 Tauri 默认拖放处理器**。实测 Tauri 默认配置下页面收不到任何 DOM 拖放事件，拖放整体失效；关掉后恢复，但外壳拿不到磁盘路径，`@path` 芯片要等上游扩展（原 B）。原 A 经查不可行，理由见 P4。 |
 | D4 | 发布凭据 | **待定**。Windows 代码签名证书与 macOS 公证凭据由谁提供、放在哪。 |
 
 ## P1 — 让窗口真正进入会话
@@ -197,13 +197,19 @@ A 路线另有两条固有代价，均已由上游注释与代码确认：`keepM
 
 **验证**：打开真实 HTTPS 站点、站内跳转、多标签、退出后 guest 被销毁；确认 guest 无法调用任何 Tauri 命令。
 
-## P4 — 拖放取路径（取决于 D3）
+## P4 — 拖放（D3 已定）
 
-- [ ] **4.1 探针**：写一个最小页面，同时接 `tauri://drag-drop` 与 DOM `drop`，拖入多个文件，记录两者的顺序与数量是否稳定对应。
-- [ ] **4.2** 按探针结论实现 `__DSH_HOST_PATHS__.pathFor`，或按 D3-B 提上游扩展。
+**结论：Tauri 默认配置下 HTML5 拖放整体失效，而不只是 `@path` 芯片失效。**
+
+Tauri 默认给 webview 装一个认领拖放的处理器，`tauri-runtime-wry` 里的闭包固定返回 `true`。wry 在认领时不调用 WebKit 的 `super`（`wry-0.55.1/src/wkwebview/drag_drop.rs` 的 `dragging_entered` / `perform_drag_operation` 都是「认领则返回 Copy/YES，否则 `msg_send![super(...)]`」）。Web 进程因此拿不到 `draggingEntered`，页面连 `dragenter`/`dragover`/`drop` 都收不到——拖图片进对话也上不了传。`disable_drag_drop_handler()` 会把处理器换成 wry 的默认实现 `Box::new(|_| false)`，恢复委托给系统。
+
+- [x] **4.1** 窗口构建时关闭 Tauri 的拖放处理器（`src-tauri/src/lib.rs`）。
+- [ ] **4.2** `@path` 芯片：外壳关掉处理器后拿不到被拖文件的磁盘路径，`__DSH_HOST_PATHS__` 没有来源。上游把 `pathFor` 返回空串的取值当作「没有路径、按上传处理」，所以拖入的非图片文件会**上传而不是变成 `@path` 芯片**。要补这一格只能走上游扩展（原 D3-B，待提）。
 - [ ] **4.3** 回归上游 `packages/client/ui-conversation` 里关于 `@path` chip 的测试。
 
-**验证**：拖入文件、文件夹、图片各一次，确认「带真实路径的非图片文件成为 `@path` chip、图片仍上传」这一上游行为不变。
+**原 D3-A 不可行**：`tauri://drag-drop` 与 DOM drop 不会同时到达——认领就没有 DOM drop，不认领就没有事件，两者互斥。
+
+**验证**：拖一张图片进对话应正常上传；拖一个文件应上传而非生成 `@path` 芯片。操作系统级拖拽无法自动化，需真人操作。
 
 ## P5 — 打包与签名
 

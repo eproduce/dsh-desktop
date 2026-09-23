@@ -124,6 +124,12 @@ pub fn run() {
             .inner_size(1280.0, 820.0)
             .min_inner_size(960.0, 640.0)
             .initialization_script(bridge::initialization_script(std::env::consts::OS))
+            // Tauri 默认安装一个认领拖放的处理器；认领时 wry 不调用 WebKit 的
+            // `super`，Web 进程因此收不到 `dragenter`/`dragover`/`drop`，HTML5
+            // 拖放整体失效。上游对话输入区靠 DOM drop 接收拖入的附件，所以必须
+            // 关掉它。代价是拿不到被拖文件的磁盘路径，`__DSH_HOST_PATHS__` 没有
+            // 来源，`@路径` 芯片不可用，拖入的文件一律按上传处理（见 roadmap D3）。
+            .disable_drag_drop_handler()
             .build()?;
 
             if let Err(error) = commands::start_host(&window.app_handle().clone()) {
