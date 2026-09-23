@@ -62,11 +62,18 @@ assert facts.get("hostStatusOk") is True, "host_status 未被放行：" + str(fa
 assert facts.get("platform"), "未注入 html[data-platform]"
 assert facts.get("hasBoot") is True, "未注入 dshDesktopBoot"
 assert facts.get("hasDirectoryPicker") is True, "未注入 __DSH_DIRECTORY_PICKER__"
+# 有意不定义桌面标记：它的存在会抑制 Web 侧的模型凭据引导，而本外壳还没有承接该步的
+# 欢迎窗口。理由见 src-tauri/src/bridge.rs 与 docs/tauri-migration.md。
+assert facts.get("hasDesktop") is None, "工作区文档不应定义 dshDesktop"
 boot = facts.get("boot") or {}
-assert boot.get("streamBaseUrl"), "boot 未返回 Host 地址"
-assert boot.get("injections"), "boot 未返回启动注入数据"
+# 客户端把这个值当作资源基址，必须恰好是源；带上 /?token=… 会拼出无法解析的插件地址。
+assert boot.get("streamBaseUrl") == facts["origin"], \
+  "boot 的 streamBaseUrl 应为源，实际 " + str(boot.get("streamBaseUrl"))
+# 工作区文档来自 Host，注入表已由它渲染进 HTML；再返回一份会让插件 bundle 二次加载。
+assert boot.get("injections") == [], \
+  "文档已含注入表，boot 不应再返回一份，实际 " + str(boot.get("injections"))
 print("  工作区 origin =", facts["origin"])
-print("  平台标记 =", facts["platform"], "注入数据 =", boot["injections"])
+print("  平台标记 =", facts["platform"], "| 资源基址 =", boot["streamBaseUrl"], "| 注入项 =", len(boot.get("injections") or []))
 print("  navigator.languages =", facts.get("navigatorLanguages"), "| navigator.language =", facts.get("navigatorLanguage"))
 ' || fail "工作区探测结果不符合预期"
 

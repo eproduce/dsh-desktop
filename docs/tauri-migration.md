@@ -36,6 +36,7 @@ PROBE_REPORT from=main  {"origin":"dsh-app://localhost","hostname":"localhost","
 | 应用文档 | `web-document.ts` 中的 `dsh-app://app` | Host 的环回 HTTP 源，窗口就绪后导航 | 已实现 |
 | Host 就绪前的加载页 | `dsh-app://app` 静态资源 | `dsh-app` 自定义协议 | 已实现 |
 | 渲染层桥接 | 16 个 `preload-*.ts` | 初始化脚本 + `invoke` + 事件 | 部分实现 |
+| 桌面标记 `dshDesktop` | `preload-app.ts` | **有意不定义**，见下 | 有意分歧 |
 | 拖入文件的路径 | `webUtils.getPathForFile` | `tauri://drag-drop` 事件 | 待验证 |
 | 目录选择 | Electron `dialog` | `tauri-plugin-dialog` | 已实现 |
 | 单实例与 `dsh://open` | `single-instance.ts` | `tauri-plugin-single-instance`、`tauri-plugin-deep-link` | 未开始 |
@@ -50,6 +51,18 @@ PROBE_REPORT from=main  {"origin":"dsh-app://localhost","hostname":"localhost","
 应用文档改走 Host 环回 HTTP 源，让上游的整层反向代理、cookie 交换与逐请求 `origin` 校验都变成不需要的代码。加载页仍单独由自定义协议提供，保留「Host 未就绪时窗口已可见」的体验。
 
 上游 Host 上报的事件集比上表体现的更宽（`apps/desktop/src/host-process.ts`）。除 `ready`、`fatal`、`shutdown-complete` 外，还有 `platform-session`（账号平台窗口的凭证）与 `update-tasks`（更新调度）；这两个本外壳尚未实现，会把它们记成 stderr 诊断而不是无声丢弃。前者归上表的「内嵌 Platform 账户页」，后者归「更新检查与安装」。
+
+### 为何不定义 `dshDesktop`
+
+上游把这个标记当作「原生壳自己承接凭据设置」的声明，它同时控制两处：`ui-settings-models` 用它抑制 Web 侧的模型凭据引导（`credentialOnboarding && !('dshDesktop' in globalThis)`），`ui-settings-account` 则只在它存在时才注册账号 UI。Electron 能这样做，是因为它有欢迎窗口负责凭据设置、且桌面登录页所需的 `dshPlatform` 桥接也在那里。
+
+本外壳两者都还没有。若照样定义该标记，用户会既看不到 API key 入口、又走不通登录——实测就是这个后果。因此当前有意不定义它，代价是暂时失去账号 UI（一个在没有 `dshPlatform` 时本就无法完成登录的界面）。该标记的全部消费点已核对：另外两处是 `ui-settings-general` 的更新桥接（本外壳不提供）与 `ui-sidebar-browser` 的 `carrier.browser`（本外壳不提供，因此 iframe 分支不受影响）。等欢迎窗口或 `dshPlatform` 落地后应恢复该标记。
+
+### 凭据与模型范围
+
+不需要登录就能使用：凭据按三层解析，优先级为**继承的进程环境变量（只读，最高）→ 调用目录的 `.env` → Harness 根目录的 `.env`**（`packages/util/launch-environment`）。因此 `DEEPSEEK_API_KEY=… ` 既可以直接放进环境变量，也可以写进 `~/.dsh/.env` 与 CLI 共用。有凭据后 `needsWelcome` 判定为不需要登录。
+
+模型也不限于 DeepSeek：`llm-pi-ai` 在多提供方插件里是**休眠挂载**的——在 `llm-pi-ai:` 设置段提供 provider profile 之前不注册任何路由，提供后这些路由会即时注册、密钥按其 `apiKeyEnv` 引用逐请求解析。上游注释指明「提供这些 profile 正是 Web 模型页所做的事」。
 
 ## 替代方案
 

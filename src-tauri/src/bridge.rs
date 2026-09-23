@@ -25,8 +25,13 @@ const BODY: &str = r#"
     failed: (message) => invoke("boot_failed", { message }),
   });
 
-  // 产品文档据此判断自己运行在桌面外壳中。
-  define("dshDesktop", { protocolVersion: 1 });
+  // 这里刻意不定义 `dshDesktop`。上游用这个标记表示「原生壳自己承接凭据设置」：它的
+  // 存在会抑制 Web 侧的模型凭据引导（`ui-settings-models` 里判定为
+  // `credentialOnboarding && !('dshDesktop' in globalThis)`），同时启用仅桌面注册的
+  // 账号 UI（`ui-settings-account` 缺该标记即整体返回）。Electron 之所以能这样，是因为
+  // 它有欢迎窗口负责凭据设置、且桌面登录页所需的 `dshPlatform` 桥接也在那里。本外壳
+  // 两者都还没有，若照样定义该标记，用户就会既看不到 API key 入口、又走不通登录。等
+  // 欢迎窗口或 `dshPlatform` 落地后，这里应恢复该标记以与上游桌面行为对齐。
 
   // macOS 进入全屏时红绿灯隐去，共享 Web UI 的 CSS 靠这个标记撤掉留白。
   if (PLATFORM === "macos") {
