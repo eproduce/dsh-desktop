@@ -204,12 +204,12 @@ A 路线另有两条固有代价，均已由上游注释与代码确认：`keepM
 Tauri 默认给 webview 装一个认领拖放的处理器，`tauri-runtime-wry` 里的闭包固定返回 `true`。wry 在认领时不调用 WebKit 的 `super`（`wry-0.55.1/src/wkwebview/drag_drop.rs` 的 `dragging_entered` / `perform_drag_operation` 都是「认领则返回 Copy/YES，否则 `msg_send![super(...)]`」）。Web 进程因此拿不到 `draggingEntered`，页面连 `dragenter`/`dragover`/`drop` 都收不到——拖图片进对话也上不了传。`disable_drag_drop_handler()` 会把处理器换成 wry 的默认实现 `Box::new(|_| false)`，恢复委托给系统。
 
 - [x] **4.1** 窗口构建时关闭 Tauri 的拖放处理器（`src-tauri/src/lib.rs`）。
-- [ ] **4.2** `@path` 芯片：外壳关掉处理器后拿不到被拖文件的磁盘路径，`__DSH_HOST_PATHS__` 没有来源。上游把 `pathFor` 返回空串的取值当作「没有路径、按上传处理」，所以拖入的非图片文件会**上传而不是变成 `@path` 芯片**。要补这一格只能走上游扩展（原 D3-B，待提）。
+- [ ] **4.2** `@path` 芯片与拖入文件夹：外壳不装 `__DSH_HOST_PATHS__`（关掉 Tauri 处理器后没有磁盘路径来源），于是走上游为「无桥接」设计的降级分支（`packages/client/ui-conversation/src/client/apply.ts:429-435`）：`path === ''` 时一律 `uploads.push(file)`，且 `bridge === undefined` 时拖入文件夹直接返回 `attachment.directoryDesktopOnly`。与 Electron 桌面端有两处差异：**非图片文件上传为附件**而不是 `@path` 芯片；**拖入文件夹被拒**。上游 JSDoc 把这一分支写成「a served Web page has none, so every non-image file uploads there」，即本外壳行为与浏览器里打开 Web 版一致，属上游有意设计而非本项目的缺陷。要补只能走上游扩展（原 D3-B，待提）。
 - [ ] **4.3** 回归上游 `packages/client/ui-conversation` 里关于 `@path` chip 的测试。
 
 **原 D3-A 不可行**：`tauri://drag-drop` 与 DOM drop 不会同时到达——认领就没有 DOM drop，不认领就没有事件，两者互斥。
 
-**验证**：2026-09-23 真人实测拖拽恢复正常，页面 DOM 拖放可用。操作系统级拖拽无法自动化，这一格只能靠真人。
+**验证**：2026-09-23 实测。真人拖拽恢复正常；再用会话日志交叉核对——拖入的 PDF 记为 `{"type":"file","attachment":{…}}` 内容部件，落盘在 `~/.dsh/attachments/v1/files/`，与图片（`{"type":"image","attachment":{…}}`）走同一条附件管线，消息内无 `text` 部件即无 `@路径` 芯片。操作系统级拖拽无法自动化，只能靠真人触发加日志核对。
 
 ## P5 — 打包与签名
 
