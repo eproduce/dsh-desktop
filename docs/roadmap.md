@@ -72,7 +72,7 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 | # | 问题 | 决定 |
 | --- | --- | --- |
-| D1 | 侧边栏浏览器怎么做 | **定为 A 后实测需复议**：iframe 路线在抽样的 10 个站点里有 6 个被 `X-Frame-Options`/`frame-ancestors` 拒绝，而这类头只约束 frame、不约束原生子 webview。见 P3-A 实测结论。 |
+| D1 | 侧边栏浏览器怎么做 | **已定 A（知情决定）**：看过可框性数据后仍选择 iframe 路线，接受抽样 10 个站点里 6 个打不开，换取零上游改动。理由见 P3-A 实测结论；转 B 需要上游加 provider 注册点（即 D2）。 |
 | D2 | 是否接受改上游 | **已定：能不改就不改**。零上游改动的路径优先；确实必须改上游时单独提出再定。 |
 | D3 | 拖放取 `@path` | **待定**。**A**：用 `tauri://drag-drop` 事件与 DOM drop 的顺序相关性配对，脆弱但不改上游；**B**：上游扩展 `__DSH_HOST_PATHS__` 接受路径数组。按 D2，优先做 A 的探测实验确认相关性是否稳定。 |
 | D4 | 发布凭据 | **待定**。Windows 代码签名证书与 macOS 公证凭据由谁提供、放在哪。 |
@@ -114,13 +114,13 @@ DSH_HOST_RUNTIME=<runtimeDir> \
 
 ### 已解决：工作区文档在壳内启动失败
 
-接入真实 Host 后应用文档能加载，但 62 个客户端插件全部 import 失败。逐层定位出三处缺陷，均已修复。
+接入真实 Host 后应用文档能加载，但 62 个客户端插件全部 import 失败。逐层定位出两处缺陷并修复，另有一处与上游对齐的改动。
 
 **一、注入表被应用两次。** 本外壳的工作区文档直接来自 Host，而 Host 已把注入表渲染进 HTML（上游 `tapIndex` 的服务端形式）。Electron 不同：它的文档取自本地静态 `dist`，不含注入行，必须由应用运行时再应用一次。两者都做会让插件 bundle 二次加载并触发重复注册，模块系统构造失败、`__ModuleLoader__.mode` 停在 `queue`，于是所有入口都无法激活。`boot` 现在返回空注入表——这个前提成立，全靠文档来自 Host。
 
-**二、`streamBaseUrl` 必须是源。** 客户端拿它当资源基址，传 Host 给的 `http://127.0.0.1:端口/?token=…` 会拼出无法解析的插件地址。上游 Electron 外壳同样返回 `new URL(hostUrl).origin`。
+**二、认证 cookie 不会在重定向链上被回送。** Host 下发的 cookie 是 `SameSite=Strict`，而窗口的第一份文档来自 dsh-app 加载页、属于跨站发起，WebKit 因此在 303 重定向后的请求上不带该 cookie，窗口停在 401 纯文本页。该页与 Host 同源，从它再发一次同源导航即可让 cookie 生效；注入脚本据 content-type 与页面文案识别该情形并自愈。
 
-**三、认证 cookie 不会在重定向链上被回送。** Host 下发的 cookie 是 `SameSite=Strict`，而窗口的第一份文档来自 dsh-app 加载页、属于跨站发起，WebKit 因此在 303 重定向后的请求上不带该 cookie，窗口停在 401 纯文本页。该页与 Host 同源，从它再发一次同源导航即可让 cookie 生效；注入脚本据 content-type 与页面文案识别该情形并自愈。
+上一条是 62 个入口全部失败的成因，下一条是窗口停在认证页的成因。此外还有一处**不是**成因、但与上游对齐的改动：`streamBaseUrl` 改为返回源（`new URL(hostUrl).origin`，与 Electron 一致），因为该值被客户端当作资源基址，带 `/?token=…` 的完整地址不是基址。当时一度把它列为三处成因之一，反证时才发现：单独改它 62 个入口依然失败，把它改回去也不触发任何失败——它有记录价值，但不是修复。
 
 排查中记下两条方法论，都曾导致误判：
 
@@ -152,9 +152,9 @@ node --expose-internals <runtimeDir>/node_modules/@deepseek-ai/dsh-desktop-host/
 
 **验证**：逐个桥接写单元测试（Rust 侧的命令返回结构 + shim 暴露的成员名），再跑上游使用这些桥接的客户端测试。
 
-## P3 — 侧边栏浏览器（D1 需复议）
+## P3 — 侧边栏浏览器（A 已定）
 
-D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandboxed iframe provider，零上游改动。**实测后这个选择需要复议**——见下面的可框性数据。
+D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandboxed iframe provider，零上游改动。实测得到可框性数据后仍然选择 A，接受已知代价；数据与代价见下面的 P3-A 结论。
 
 ### 依赖获取
 

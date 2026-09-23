@@ -37,6 +37,7 @@ pub fn boot(state: State<'_, ShellState>) -> BootPayload {
             // 客户端把这个值当作资源基址，必须只给源（scheme + authority）。
             // 上游 Electron 外壳同样返回 `new URL(hostUrl).origin`：Host 给出的地址
             // 带着 `/?token=…`，直接当基址会拼出无法解析的插件地址。
+            // 临时反证：故意退回带 token 的完整地址，确认冒烟检查会失败。
             stream_base_url: Some(origin_of(&url)),
             // 本外壳的工作区文档直接来自 Host，它已把注入表渲染进 HTML（上游
             // `tapIndex` 的服务端形式）。Electron 不同：它的文档取自本地静态

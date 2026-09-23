@@ -66,7 +66,8 @@ assert facts.get("hasDirectoryPicker") is True, "未注入 __DSH_DIRECTORY_PICKE
 # 欢迎窗口。理由见 src-tauri/src/bridge.rs 与 docs/tauri-migration.md。
 assert facts.get("hasDesktop") is None, "工作区文档不应定义 dshDesktop"
 boot = facts.get("boot") or {}
-# 客户端把这个值当作资源基址，必须恰好是源；带上 /?token=… 会拼出无法解析的插件地址。
+# 与上游 Electron 外壳对齐：它返回的是 `new URL(hostUrl).origin`。这个值被客户端
+# 当资源基址使用，带着 /?token=… 的结果不是基址。
 assert boot.get("streamBaseUrl") == facts["origin"], \
   "boot 的 streamBaseUrl 应为源，实际 " + str(boot.get("streamBaseUrl"))
 # 工作区文档来自 Host，注入表已由它渲染进 HTML；再返回一份会让插件 bundle 二次加载。
