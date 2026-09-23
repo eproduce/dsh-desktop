@@ -42,6 +42,25 @@ const BODY: &str = r#"
   define("__DSH_DIRECTORY_PICKER__", {
     pick: () => invoke("pick_directory"),
   });
+
+  // Host 用「带 token 的地址换取 cookie，再重定向」完成页面认证，而那个 cookie 是
+  // SameSite=Strict。本窗口的第一份文档来自 dsh-app 加载页，属于跨站发起，WebKit
+  // 因此在重定向后的请求上不回送该 cookie，窗口会停在 Host 的 401 纯文本页上。
+  // 该页与 Host 同源，从它再发一次同源导航，cookie 就会被带上。
+  const AUTH_FAILURE = "dsh web authentication required";
+  const recoverFromAuthFailure = () => {
+    const body = document.body;
+    if (body === null) return;
+    if (!(body.textContent ?? "").includes(AUTH_FAILURE)) return;
+    location.replace(location.origin + "/");
+  };
+  if (document.contentType.startsWith("text/plain")) {
+    if (document.readyState === "loading") {
+      addEventListener("DOMContentLoaded", recoverFromAuthFailure, { once: true });
+    } else {
+      recoverFromAuthFailure();
+    }
+  }
 "#;
 
 /// 生成注入脚本。

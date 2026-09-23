@@ -33,15 +33,30 @@ pub struct BootPayload {
 pub fn boot(state: State<'_, ShellState>) -> BootPayload {
     let host = lock(&state.host);
     match host.state() {
-        HostState::Ready { url, injections } => BootPayload {
-            stream_base_url: Some(url),
-            injections,
+        HostState::Ready { url, .. } => BootPayload {
+            // 客户端把这个值当作资源基址，必须只给源（scheme + authority）。
+            // 上游 Electron 外壳同样返回 `new URL(hostUrl).origin`：Host 给出的地址
+            // 带着 `/?token=…`，直接当基址会拼出无法解析的插件地址。
+            stream_base_url: Some(origin_of(&url)),
+            // 本外壳的工作区文档直接来自 Host，它已把注入表渲染进 HTML（上游
+            // `tapIndex` 的服务端形式）。Electron 不同：它的文档取自本地静态
+            // `dist`，不含注入行，因此必须由应用运行时再应用一次。我们若也返回
+            // 这张表，插件 bundle 会被二次加载并触发重复注册，启动随之失败
+            // （实测：62 个入口全部无法激活）。
+            injections: Vec::new(),
         },
         _ => BootPayload {
             stream_base_url: None,
             injections: Vec::new(),
         },
     }
+}
+
+/// 取 URL 的源；无法解析时退回原值。
+fn origin_of(url: &str) -> String {
+    url.parse::<tauri::Url>()
+        .map(|parsed| parsed.origin().ascii_serialization())
+        .unwrap_or_else(|_| url.to_string())
 }
 
 /// 接收渲染层上报的启动失败。
