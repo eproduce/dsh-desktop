@@ -112,32 +112,22 @@ DSH_HOST_RUNTIME=<runtimeDir> \
 1. **下载**。上游用单次 `fetch` 读取整个响应再校验 sha256，遇到代理中途掐断连接就整体失败（实测 `TypeError: terminated`），且不续传。缓存以 sha256 为文件名，因此可以先用 `curl` 的续传与重试把 15 个资源（Python 发行版、Node、wheels）预填进 `.desktop-build/downloads`，再重跑准备步骤；准备本身只需 32 秒。
 2. **位置**。载荷落在 `.desktop-build/targets/mac-x64/runtime/primary-runtime`，而外壳不传 argv[4] 时 Host 会推导到 `<runtimeDir>/../runtime/primary-runtime`，两者不一致。运行时用 `DSH_HOST_PRIMARY_RUNTIME` 显式指向即可。
 
-### 当前阻塞：工作区文档的认证 cookie
+### 已解决：工作区文档在壳内启动失败
 
-外壳已把窗口导航到真实地址，但窗口显示的是 Host 的 401 纯文本：
+接入真实 Host 后应用文档能加载，但 62 个客户端插件全部 import 失败。逐层定位出三处缺陷，均已修复。
 
-```
-dsh web authentication required; reopen the URL printed by dsh web.
-```
+**一、注入表被应用两次。** 本外壳的工作区文档直接来自 Host，而 Host 已把注入表渲染进 HTML（上游 `tapIndex` 的服务端形式）。Electron 不同：它的文档取自本地静态 `dist`，不含注入行，必须由应用运行时再应用一次。两者都做会让插件 bundle 二次加载并触发重复注册，模块系统构造失败、`__ModuleLoader__.mode` 停在 `queue`，于是所有入口都无法激活。`boot` 现在返回空注入表——这个前提成立，全靠文档来自 Host。
 
-**Host 侧已实测正常。** 单独运行 Host（它会把自己的地址打印到 stdout，可直接读取，不必经外壳），再用 curl 走完整流程：
+**二、`streamBaseUrl` 必须是源。** 客户端拿它当资源基址，传 Host 给的 `http://127.0.0.1:端口/?token=…` 会拼出无法解析的插件地址。上游 Electron 外壳同样返回 `new URL(hostUrl).origin`。
 
-| 请求 | 结果 |
-| --- | --- |
-| `GET /?token=<launchToken>` | **303**，`location: ./`，`Set-Cookie: dsh-auth-<authority>=<签名载荷>; HttpOnly; SameSite=Strict` |
-| 带该 cookie `GET /` | **200**，返回真实应用文档 |
+**三、认证 cookie 不会在重定向链上被回送。** Host 下发的 cookie 是 `SameSite=Strict`，而窗口的第一份文档来自 dsh-app 加载页、属于跨站发起，WebKit 因此在 303 重定向后的请求上不带该 cookie，窗口停在 401 纯文本页。该页与 Host 同源，从它再发一次同源导航即可让 cookie 生效；注入脚本据 content-type 与页面文案识别该情形并自愈。
 
-认证契约见 `packages/client/connection/src/browser-auth.ts`：带单个 `token` 参数且与每进程随机生成的 `launchToken` 匹配时下发 cookie，此后按 cookie 认证，cookie 与请求 authority（host:port）绑定。token 不落盘，外部拿不到，只能从 Host 自己的输出读取。
+排查中记下两条方法论，都曾导致误判：
 
-**因此问题在外壳侧**：Tauri 的 webview 没有建立或没有回送这个 cookie。尚未定位根因，待验证的候选：
+- **wry 的 `cookies_for_url` 在 IP 主机下恒为空**。它用 `cookie.domain() == url.domain()` 过滤，而 `url::Url::domain()` 对 IP 字面量返回 `None`。曾据它得出「webview 没存 cookie」的结论，实为读数无效。可靠信号是「应用文档是否调用 `boot`」——`apps/web/src/main.ts` 在 `dshDesktopBoot` 存在时必定调用。
+- **用真实浏览器打开同一个 Host 地址做对照**，应用与 62 个插件全部正常，从而把故障范围确定在壳侧。隔离环境差异比在单侧深挖更快。
 
-- `SameSite=Strict` 与 WebKit 的 cookie 策略；
-- WKWebView 对 `http://127.0.0.1:<port>` 这种明文环回源的 cookie 持久化；
-- 303 响应上的 `Set-Cookie` 在 WebView 里是否被采纳。
-
-**Electron 不会遇到这个问题**：它用 `dsh-app://app` 提供应用文档，并由主进程自己代理对 Host 的请求（`apps/desktop/src/web-document.ts` 的 `serveWebDocument` / `authenticateWebHost` / `forwardWebRequest`），认证在 Node 侧完成。本外壳让窗口直接访问环回源，就把认证交给了 webview 的 cookie 罐。
-
-两条出路：确认并修好 webview 的 cookie 行为；或按 Electron 的方式改成外壳代理请求。
+**验证**：外壳、桥接、Host 三进程稳定存活，运行期无任何渲染层启动失败上报——`bootClient` 在任何入口未激活时都会经 `boot_failed` 上报。
 
 ### GUI 断言依赖辅助功能通道
 
