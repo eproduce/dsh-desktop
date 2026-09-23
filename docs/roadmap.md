@@ -72,7 +72,7 @@ Phase 0 实测完成，Phase 1 骨架可编译可运行：窗口能开、加载�
 
 | # | 问题 | 决定 |
 | --- | --- | --- |
-| D1 | 侧边栏浏览器怎么做 | **已定 A**：shim 不暴露 `browser`，用 iframe provider，零上游改动。先用它验证范围，确认不足再评估 B。 |
+| D1 | 侧边栏浏览器怎么做 | **定为 A 后实测需复议**：iframe 路线在抽样的 10 个站点里有 6 个被 `X-Frame-Options`/`frame-ancestors` 拒绝，而这类头只约束 frame、不约束原生子 webview。见 P3-A 实测结论。 |
 | D2 | 是否接受改上游 | **已定：能不改就不改**。零上游改动的路径优先；确实必须改上游时单独提出再定。 |
 | D3 | 拖放取 `@path` | **待定**。**A**：用 `tauri://drag-drop` 事件与 DOM drop 的顺序相关性配对，脆弱但不改上游；**B**：上游扩展 `__DSH_HOST_PATHS__` 接受路径数组。按 D2，优先做 A 的探测实验确认相关性是否稳定。 |
 | D4 | 发布凭据 | **待定**。Windows 代码签名证书与 macOS 公证凭据由谁提供、放在哪。 |
@@ -152,15 +152,40 @@ node --expose-internals <runtimeDir>/node_modules/@deepseek-ai/dsh-desktop-host/
 
 **验证**：逐个桥接写单元测试（Rust 侧的命令返回结构 + shim 暴露的成员名），再跑上游使用这些桥接的客户端测试。
 
-## P3 — 侧边栏浏览器（取决于 D1）
+## P3 — 侧边栏浏览器（D1 需复议）
 
-D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandboxed iframe provider，零上游改动。本阶段先只做验证，确认范围后再决定是否需要 B。
+D1 定为 **A（iframe）**：shim 不暴露 `browser`，上游回退到 sandboxed iframe provider，零上游改动。**实测后这个选择需要复议**——见下面的可框性数据。
 
 ### 依赖获取
 
 本机的官方 registry（`registry.npmjs.org`、`crates.io`、`pypi.org`）经代理连不通，国内镜像可达：`registry.npmmirror.com`、`rsproxy.cn`（已实测可取到 `tauri-plugin-os` 等包）。因此装依赖走镜像，**不改全局配置**：cargo 用项目内 `.cargo/config.toml` 或 `--config`，pnpm 用 `--registry`。这不影响已构建完成的离线链路——`cargo build --offline` 依然可用。
 
 若选 A（iframe）：不做代码改动，只做验证——确认 `desktop === undefined` 分支真的被走到，并实测一批常见站点能否被 frame。
+
+### P3-A 实测结论
+
+**分支确认为 iframe。** 运行时在侧边栏浏览器面板里查到 `<iframe>` 元素，同一页面上 `webviewSupported === false`（Chromium 没有 Electron 的 `<webview>`），因此走的是 `createIframePage`。代码侧的判据也成立：`carrier?.protocolVersion === 1 ? carrier.browser : undefined`，而本外壳不再定义 `dshDesktop`，故 `desktop === undefined`；端到端脚本断言了该标记缺席。
+
+**可框性：抽样的 10 个站点里有 6 个拒绝被 frame。**
+
+| 站点 | 屏蔽方式 | 能否内嵌 |
+| --- | --- | --- |
+| GitHub | `X-Frame-Options: deny` + `frame-ancestors 'none'` | 否 |
+| MDN | `X-Frame-Options: DENY` | 否 |
+| Stack Overflow | `SAMEORIGIN` | 否 |
+| VS Code 文档 | `frame-ancestors 'self'` | 否 |
+| 阮一峰博客 | `SAMEORIGIN` | 否 |
+| DeepWiki | `frame-ancestors 'self' vscode-webview://*` | 否 |
+| 掘金 | 无 | 是 |
+| Python 文档 | 无 | 是 |
+| 百度 | 无 | 是 |
+| 知乎 | 无 | 是 |
+
+拒绝时面板里是浏览器自己的错误页，没有产品文案。实测 GitHub 的报错是 `net::ERR_BLOCKED_BY_RESPONSE` 加一条 `Framing … violates … "frame-ancestors 'none'"`；可框站点（掘金）能完整渲染。
+
+**这对 D1 是决定性的：`X-Frame-Options` 与 `frame-ancestors` 只约束 frame，不约束以顶层文档加载的原生子 webview。** 上游 Electron 外壳用 `<webview>` 正是因此不受这批限制，而 D1-B 会整类消除这些失败。按上面的数据，A 路线在一个面向开发者的浏览器侧边栏里会有一半以上的常用站点打不开。
+
+A 路线另有两条固有代价，均已由上游注释与代码确认：`keepMounted: desktop !== undefined`，iframe 路径下为 `false`，切走再切回会重建页面；没有独立存储分区。
 
 **若选 B（原生子 webview）**：工作量最大的一个阶段。
 
